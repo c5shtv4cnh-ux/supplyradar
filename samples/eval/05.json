@@ -1,0 +1,34 @@
+{
+  "supplier_name": "ТОО «Молочный двор»",
+  "supplier_bin": "990140000017",
+  "invoice_number": "2328",
+  "invoice_date": "2026-08-23",
+  "currency": "KZT",
+  "total": 9522,
+  "lines": [
+    {
+      "name": "Масло сливочное 82% 200 г",
+      "canonical_name": "масло сливочное 82% 200 г",
+      "quantity": 3,
+      "unit": "шт",
+      "price": 1197.0,
+      "total": 3591
+    },
+    {
+      "name": "Сыр Российский",
+      "canonical_name": "сыр российский",
+      "quantity": 1,
+      "unit": "кг",
+      "price": 4370.0,
+      "total": 4370
+    },
+    {
+      "name": "Сливки 33% 0,5 л",
+      "canonical_name": "сливки 33% 0.5 л",
+      "quantity": 1,
+      "unit": "шт",
+      "price": 1561.0,
+      "total": 1561
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "supplier_name": "ИП «Хлебный дом»",
+  "supplier_bin": "120340004562",
+  "invoice_number": "2314",
+  "invoice_date": "2026-08-14",
+  "currency": "KZT",
+  "total": 2893,
+  "lines": [
+    {
+      "name": "Хлеб белый нарезной",
+      "canonical_name": "хлеб белый нарезной",
+      "quantity": 10,
+      "unit": "шт",
+      "price": 257.0,
+      "total": 2570
+    },
+    {
+      "name": "Круассан сливочный",
+      "canonical_name": "круассан сливочный",
+      "quantity": 1,
+      "unit": "шт",
+      "price": 323.0,
+      "total": 323
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "supplier_name": "ТОО «Молочный двор»",
+  "supplier_bin": "990140000017",
+  "invoice_number": "2389",
+  "invoice_date": "2026-09-22",
+  "currency": "KZT",
+  "total": 13650,
+  "lines": [
+    {
+      "name": "Молоко 3,2% 1 л",
+      "canonical_name": "молоко 3.2% 1 л",
+      "quantity": 10,
+      "unit": "шт",
+      "price": 420.0,
+      "total": 4200
+    },
+    {
+      "name": "Сливки 33% 0,5 л",
+      "canonical_name": "сливки 33% 0.5 л",
+      "quantity": 4,
+      "unit": "шт",
+      "price": 1500.0,
+      "total": 6000
+    },
+    {
+      "name": "Масло сливочное 82% 200 г",
+      "canonical_name": "масло сливочное 82% 200 г",
+      "quantity": 3,
+      "unit": "шт",
+      "price": 1150.0,
+      "total": 3450
+    }
+  ]
+}

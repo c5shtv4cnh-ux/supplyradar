@@ -1,0 +1,34 @@
+{
+  "supplier_name": "ТОО «Молочный двор»",
+  "supplier_bin": "990140000017",
+  "invoice_number": "2300",
+  "invoice_date": "2026-08-11",
+  "currency": "KZT",
+  "total": 45226,
+  "lines": [
+    {
+      "name": "Молоко 3,2% 1 л",
+      "canonical_name": "молоко 3.2% 1 л",
+      "quantity": 3,
+      "unit": "шт",
+      "price": 432.0,
+      "total": 1296
+    },
+    {
+      "name": "Сыр Российский",
+      "canonical_name": "сыр российский",
+      "quantity": 10,
+      "unit": "кг",
+      "price": 4322.0,
+      "total": 43220
+    },
+    {
+      "name": "Сметана 20% 400 г",
+      "canonical_name": "сметана 20% 400 г",
+      "quantity": 1,
+      "unit": "шт",
+      "price": 710.0,
+      "total": 710
+    }
+  ]
+}

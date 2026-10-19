@@ -1,0 +1,42 @@
+{
+  "supplier_name": "ТОО «Свежая ферма»",
+  "supplier_bin": "050140001238",
+  "invoice_number": "2335",
+  "invoice_date": "2026-09-13",
+  "currency": "KZT",
+  "total": 19875,
+  "lines": [
+    {
+      "name": "СЛИВКИ 33% 0,5Л",
+      "canonical_name": "сливки 33% 0.5 л",
+      "quantity": 10,
+      "unit": "шт",
+      "price": 1637.0,
+      "total": 16370
+    },
+    {
+      "name": "КЕФИР 2,5% 1Л",
+      "canonical_name": "кефир 2.5% 1 л",
+      "quantity": 1,
+      "unit": "шт",
+      "price": 551.0,
+      "total": 551
+    },
+    {
+      "name": "МОЛОКО 3,2 1Л",
+      "canonical_name": "молоко 3.2% 1 л",
+      "quantity": 3,
+      "unit": "шт",
+      "price": 434.0,
+      "total": 1302
+    },
+    {
+      "name": "ЯЙЦО С1 10 ШТ",
+      "canonical_name": "яйца с1 10 шт",
+      "quantity": 2,
+      "unit": "уп",
+      "price": 826.0,
+      "total": 1652
+    }
+  ]
+}

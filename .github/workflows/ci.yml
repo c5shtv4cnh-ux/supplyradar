@@ -1,0 +1,79 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q tests/unit
+
+  terraform:
+    name: Terraform fmt, validate, test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.3
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate
+      - run: terraform test # plans the whole stack against a mocked AWS provider
+
+  plan:
+    name: Terraform plan (dev)
+    # Runs once the OIDC role exists: set repository variables AWS_PLAN_ROLE_ARN and TF_STATE_BUCKET.
+    if: github.event_name == 'pull_request' && vars.AWS_PLAN_ROLE_ARN != ''
+    needs: [python, terraform]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: eu-central-1
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.3
+          terraform_wrapper: false
+      - name: init
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=supplyradar/dev/terraform.tfstate" \
+            -backend-config="region=eu-central-1" \
+            -backend-config="use_lockfile=true"
+      - name: plan
+        run: |
+          terraform plan -input=false -no-color -var-file=envs/dev.tfvars \
+            -var="alarm_email=${{ vars.ALARM_EMAIL }}" \
+            -var="github_repository=${{ github.repository }}" \
+            -var="state_bucket=${{ vars.TF_STATE_BUCKET }}" | tee plan.txt
+          {
+            echo '### terraform plan (dev)'
+            echo '```'
+            grep -E '^(Plan:|No changes)' plan.txt || tail -n 5 plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

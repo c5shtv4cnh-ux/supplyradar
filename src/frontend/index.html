@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SupplyRadar</title>
+  <meta name="description" content="Проверка цен поставщиков по фото накладной">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar" id="topbar" hidden>
+    <a class="brand" href="#/invoices">
+      <img src="favicon.svg" alt="" width="24" height="24">
+      <span>SupplyRadar</span>
+    </a>
+    <nav class="nav" id="nav">
+      <a href="#/invoices" data-nav="invoices">Накладные</a>
+      <a href="#/products" data-nav="products">Товары</a>
+      <a href="#/alerts" data-nav="alerts">Алерты</a>
+      <a href="#/settings" data-nav="settings">Настройки</a>
+    </nav>
+    <button class="link" id="logout" type="button">Выйти</button>
+  </header>
+
+  <main id="app" class="container" aria-live="polite"></main>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

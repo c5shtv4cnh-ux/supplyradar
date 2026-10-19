@@ -1,0 +1,27 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform/.build/
+terraform/envs/*.backend.hcl
+!terraform/envs/*.backend.hcl.example
+.terraform.lock.hcl.bak
+crash.log
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Local web config (Terraform writes the real one to S3)
+src/frontend/config.js
+
+# Node (only for the optional browser test)
+node_modules/
+
+# Secrets
+.env
+*.pem
+eval-report*.json

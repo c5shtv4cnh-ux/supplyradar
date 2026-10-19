@@ -1,0 +1,42 @@
+{
+  "supplier_name": "ТОО «Зелёный рынок»",
+  "supplier_bin": "980740007897",
+  "invoice_number": "2377",
+  "invoice_date": "2026-09-22",
+  "currency": "KZT",
+  "total": 20354,
+  "lines": [
+    {
+      "name": "Лимоны",
+      "canonical_name": "лимоны",
+      "quantity": 10,
+      "unit": "кг",
+      "price": 1514.0,
+      "total": 15140
+    },
+    {
+      "name": "Помидоры",
+      "canonical_name": "помидоры",
+      "quantity": 2,
+      "unit": "кг",
+      "price": 1234.0,
+      "total": 2468
+    },
+    {
+      "name": "Огурцы",
+      "canonical_name": "огурцы",
+      "quantity": 2,
+      "unit": "кг",
+      "price": 953.0,
+      "total": 1906
+    },
+    {
+      "name": "Мята свежая",
+      "canonical_name": "мята свежая",
+      "quantity": 3,
+      "unit": "пучок",
+      "price": 280.0,
+      "total": 840
+    }
+  ]
+}

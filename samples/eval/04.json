@@ -1,0 +1,26 @@
+{
+  "supplier_name": "ТОО «Зелёный рынок»",
+  "supplier_bin": "980740007897",
+  "invoice_number": "2321",
+  "invoice_date": "2026-09-11",
+  "currency": "KZT",
+  "total": 5127,
+  "lines": [
+    {
+      "name": "Помидоры",
+      "canonical_name": "помидоры",
+      "quantity": 3,
+      "unit": "кг",
+      "price": 1213.0,
+      "total": 3639
+    },
+    {
+      "name": "Лимоны",
+      "canonical_name": "лимоны",
+      "quantity": 1,
+      "unit": "кг",
+      "price": 1488.0,
+      "total": 1488
+    }
+  ]
+}
