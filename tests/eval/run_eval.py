@@ -2,7 +2,7 @@
 
     export GEMINI_API_KEY=...            # from Google AI Studio
     python3 tests/eval/run_eval.py                       # samples/eval/*.png
-    python3 tests/eval/run_eval.py --dir samples/demo --model gemini-2.5-flash-lite
+    python3 tests/eval/run_eval.py --dir samples/demo --model gemini-3.5-flash-lite
 
 A field counts as correct when it matches the printed value:
 numbers within 0.01, dates and BIN exactly, names after normalisation.
@@ -60,7 +60,7 @@ def score(truth, got):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", default=str(ROOT / "samples" / "eval"))
-    ap.add_argument("--model", default=None, help="defaults to GEMINI_MODEL or gemini-2.5-flash-lite")
+    ap.add_argument("--model", default=None, help="defaults to GEMINI_MODEL or gemini-3.5-flash-lite")
     ap.add_argument("--target", type=float, default=80.0)
     ap.add_argument("--pause", type=float, default=4.0, help="seconds between calls (free-tier rate limit)")
     ap.add_argument("--out", default=None, help="write a JSON report here")

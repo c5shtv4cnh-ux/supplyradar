@@ -34,8 +34,9 @@ make test tf-test      # 29 unit tests + terraform validate + offline plan test
 
 1. Open <https://aistudio.google.com>, sign in, **Get API key → Create API key**.
 2. Check which Flash-Lite model has a free tier today (AI Studio → model list, or
-   <https://ai.google.dev/gemini-api/docs/pricing>). The default is `gemini-2.5-flash-lite`;
-   if Google renamed it, set `gemini_model` in `terraform/envs/*.tfvars`.
+   <https://ai.google.dev/gemini-api/docs/pricing>). The default is `gemini-3.5-flash-lite`
+   (`gemini-2.5-flash-lite` is no longer offered to new API users, checked 2026-10-20);
+   if Google renamed it again, set `gemini_model` in `terraform/envs/*.tfvars`.
 3. Week 1 checkpoint, the accuracy test (≥ 80 % of fields correct):
 
 ```bash

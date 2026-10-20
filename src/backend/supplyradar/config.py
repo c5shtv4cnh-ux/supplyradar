@@ -7,7 +7,7 @@ VALIDATE_QUEUE_URL = os.environ.get("VALIDATE_QUEUE_URL", "")
 EXTRACT_QUEUE_URL = os.environ.get("EXTRACT_QUEUE_URL", "")
 ALERTS_TOPIC_ARN = os.environ.get("ALERTS_TOPIC_ARN", "")
 GEMINI_KEY_PARAM = os.environ.get("GEMINI_KEY_PARAM", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
 APP_URL = os.environ.get("APP_URL", "")
 
 DEFAULT_THRESHOLD_PCT = float(os.environ.get("DEFAULT_THRESHOLD_PCT", "5"))

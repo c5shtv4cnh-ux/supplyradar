@@ -28,7 +28,7 @@ variable "alarm_email" {
 variable "gemini_model" {
   description = "Gemini model id with a free tier (check Google AI Studio)."
   type        = string
-  default     = "gemini-2.5-flash-lite"
+  default     = "gemini-3.5-flash-lite"
 }
 
 variable "gemini_key_param" {

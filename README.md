@@ -94,6 +94,21 @@ make local                            # http://localhost:8765, real API code + f
 
 Uploading any file from `samples/` behaves like the real pipeline (its ground truth replaces Gemini).
 
+## AI accuracy (Week 1 checkpoint)
+
+Measured 2026-10-20 with `gemini-3.5-flash-lite` on the 12 synthetic invoices in `samples/eval`
+(`tests/eval/run_eval.py`):
+
+| Metric | Result | Target |
+|---|---|---|
+| Field accuracy (BIN, number, date, total, every line's name, qty, price, total, product match) | **253 / 255 = 99.2 %** | ≥ 80 % |
+| Invoices where the 5 checks gave the right verdict | **12 / 12** | |
+| Demo set (`samples/demo`, incl. the invoice with an arithmetic error) | 74 / 75 fields, 4 / 4 verdicts | |
+| Time per invoice | 1.8–7.3 s (median ≈ 2.3 s) | ~10 s end to end |
+
+The only misses were a product name normalised as «яйцо с1 10 шт» instead of «яйца с1 10 шт».
+Cross-supplier matching worked: «СЛИВКИ 33% 0,5Л» and «Сливки 33% 0,5 л» became one product.
+
 ## Testing
 
 | What | Command | Needs |

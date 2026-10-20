@@ -4,7 +4,7 @@ region      = "eu-central-1"
 # Owner email for alarms and the $1 budget alert (you must confirm the SNS email).
 alarm_email = "you@example.com"
 
-gemini_model        = "gemini-2.5-flash-lite"
+gemini_model        = "gemini-3.5-flash-lite"
 alert_threshold_pct = 5
 budget_limit_usd    = 1
 log_retention_days  = 7
