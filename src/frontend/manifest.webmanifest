@@ -1,0 +1,14 @@
+{
+  "name": "SupplyRadar",
+  "short_name": "SupplyRadar",
+  "description": "Проверка цен поставщиков по фото накладной",
+  "lang": "ru",
+  "start_url": "./#/invoices",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#eef2f0",
+  "theme_color": "#0b6e5f",
+  "icons": [
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

@@ -131,6 +131,8 @@ ROUTE_PATTERNS = [(re.compile("^" + re.sub(r"\{(\w+)\}", r"(?P<\1>[^/]+)", r.spl
 
 
 class Handler(SimpleHTTPRequestHandler):
+    extensions_map = {**SimpleHTTPRequestHandler.extensions_map, ".webmanifest": "application/manifest+json"}
+
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=str(ROOT / "src" / "frontend"), **kw)
 
@@ -200,6 +202,15 @@ class Handler(SimpleHTTPRequestHandler):
             USERS[email]["confirmed"] = True
             return self.send_json(200, {})
         if action == "ResendConfirmationCode":
+            return self.send_json(200, {})
+        if action == "ForgotPassword":
+            return self.send_json(200, {"CodeDeliveryDetails": {"DeliveryMedium": "EMAIL"}})
+        if action == "ConfirmForgotPassword":
+            if email not in USERS:
+                return self.send_json(400, {"__type": "CodeMismatchException"})
+            USERS[email]["password"] = body["Password"]
+            return self.send_json(200, {})
+        if action == "RevokeToken":
             return self.send_json(200, {})
         if action == "InitiateAuth":
             if body["AuthFlow"] == "REFRESH_TOKEN_AUTH":
