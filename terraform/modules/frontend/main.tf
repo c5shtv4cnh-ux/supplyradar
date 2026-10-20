@@ -96,13 +96,14 @@ resource "aws_s3_bucket_policy" "site" {
 
 locals {
   content_types = {
-    html = "text/html; charset=utf-8"
-    js   = "application/javascript; charset=utf-8"
-    css  = "text/css; charset=utf-8"
-    svg  = "image/svg+xml"
-    png  = "image/png"
-    ico  = "image/x-icon"
-    json = "application/json"
+    html        = "text/html; charset=utf-8"
+    js          = "application/javascript; charset=utf-8"
+    css         = "text/css; charset=utf-8"
+    svg         = "image/svg+xml"
+    png         = "image/png"
+    ico         = "image/x-icon"
+    json        = "application/json"
+    webmanifest = "application/manifest+json"
   }
   files = fileset(var.source_dir, "**")
 }
