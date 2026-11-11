@@ -14,7 +14,8 @@ mkdirSync(shots, { recursive: true });
 const sample = (n) => path.join(root, "samples/demo", n);
 
 const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
-const page = await browser.newPage({ viewport: { width: 1280, height: 860 }, locale: "ru-RU" });
+// Reduced motion keeps screenshots deterministic: nothing is caught halfway through an entrance animation.
+const page = await browser.newPage({ viewport: { width: 1280, height: 860 }, locale: "ru-RU", reducedMotion: "reduce" });
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 // Expected 4xx responses (wrong password, unknown invoice) are logged by the browser; JS errors are not expected.
@@ -123,7 +124,7 @@ await page.goto(base + "/#/invoices/deadbeef-0000");
 await page.waitForSelector(".error-state");
 check((await page.textContent(".error-state")).includes("не найдена"), "unknown invoice shows a not-found state");
 
-const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "ru-RU" });
+const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "ru-RU", reducedMotion: "reduce" });
 await mobile.goto(base);
 await mobile.evaluate((s) => localStorage.setItem("sr.session", s), await page.evaluate(() => localStorage.getItem("sr.session")));
 await mobile.goto(base + "/#/invoices");

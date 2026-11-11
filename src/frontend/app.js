@@ -18,7 +18,8 @@
     needs_review: ["Нужна проверка", "warn"],
     failed: ["Ошибка", "bad"],
   };
-  const COLORS = ["#0b6e5f", "#d97706", "#7c3aed", "#dc2626", "#2563eb", "#65a30d"];
+  // Series colours that stay readable on both the cream and the navy theme.
+  const COLORS = ["#ff6b5b", "#4c7df0", "#e0a526", "#2fa37a", "#9b6be8", "#4bb3d6"];
   const REQUEST_TIMEOUT_MS = 20000;
   const PROCESSING_TIMEOUT_MS = 120000;
 
@@ -29,6 +30,9 @@
     bell: '<svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/></svg>',
     search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>',
     warn: '<svg viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg>',
+    spark: '<svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></svg>',
+    check: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.8 2.8L16 9.5"/></svg>',
+    calendar: '<svg viewBox="0 0 24 24"><path d="M4 6h16v14H4zM4 10h16M8 3v4M16 3v4"/></svg>',
     cloud: '<svg viewBox="0 0 24 24"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19 10a4 4 0 0 1-1 8z"/><path d="M4 4l16 16"/></svg>',
     trash: '<svg viewBox="0 0 24 24"><path d="M5 7h14M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
   };
@@ -299,6 +303,7 @@
     currentHash = hash;
     document.title = `${title} — SupplyRadar`;
     document.getElementById("topbar").hidden = !needsAuth;
+    document.body.className = needsAuth ? "app" : "landing";
     const section = hash.split("/")[1];
     document.querySelectorAll("[data-nav]").forEach((a) => {
       const on = a.dataset.nav === section;
@@ -343,6 +348,65 @@
         <button type="button" class="link" data-toggle="${id}" aria-pressed="false">Показать</button>
       </div>`;
 
+
+    const PERKS = [
+      ["camera", "Фото или PDF", "прямо с телефона"],
+      ["spark", "AI читает строки", "за 10–20 секунд"],
+      ["check", "Сверка сумм", "ошибки подсвечены"],
+      ["bell", "Алерт на email", "в день поставки"],
+      ["calendar", "Сводка переплат", "каждый понедельник"],
+    ];
+    app.innerHTML = `
+      <div class="hero">
+        <div class="hero-bg" aria-hidden="true"></div>
+        <header class="hero-top">
+          <span class="brand"><img src="favicon.svg" alt="" width="30" height="30"><span>SupplyRadar</span></span>
+          <nav class="hero-nav" aria-label="О сервисе">
+            <button type="button" data-scroll="how">Как это работает</button>
+            <button type="button" data-scroll="numbers">Цифры</button>
+          </nav>
+          <span class="hero-tag"><i aria-hidden="true"></i>AWS · Gemini AI</span>
+        </header>
+        <div class="auth">
+          <section class="intro">
+            <div class="preview" aria-hidden="true">
+              <div class="preview-head"><span><i></i>Пример алерта</span><span>сегодня</span></div>
+              <div class="preview-row"><b>Сливки 33%</b><span class="up">▲ +12%</span></div>
+              <div class="preview-row sub"><span><s>1 250 ₸</s> → 1 400 ₸ за литр</span><span>Молочный двор</span></div>
+              <div class="preview-tip">У «Свежей фермы» дешевле на 8%</div>
+            </div>
+            <h1>Цены поставщиков под присмотром.</h1>
+            <p class="lead">Сфотографируйте накладную. SupplyRadar прочитает её, сверит цены с прошлыми поставками и подскажет, у кого дешевле.</p>
+          </section>
+          <div class="card" id="auth-card"></div>
+        </div>
+        <ul class="perks">
+          ${PERKS.map(([icon, a, b]) => `<li><span aria-hidden="true">${ICONS[icon]}</span><div><b>${a}</b>${b}</div></li>`).join("")}
+        </ul>
+      </div>
+      <section class="band" id="how">
+        <p class="eyebrow">Как это работает</p>
+        <h2>Три шага от бумажной накладной до письма «цена выросла»</h2>
+        <ol class="how">
+          <li><div><b>Снимите накладную</b><span>Фото с телефона или PDF от поставщика. Файл сжимается в браузере и уходит в защищённое хранилище.</span></div></li>
+          <li><div><b>Проверьте, что прочитал AI</b><span>Каждая строка пересчитывается: количество × цена, сумма строк, итог. Ошибки подсвечены, их можно исправить.</span></div></li>
+          <li><div><b>Получите алерт о росте цены</b><span>На сайте и по email, вместе с поставщиком, у которого тот же товар дешевле.</span></div></li>
+        </ol>
+      </section>
+      <section class="band" id="numbers">
+        <p class="eyebrow">Цифры</p>
+        <dl class="numbers">
+          <div><dt>99,2%</dt><dd>полей накладной AI прочитал верно на тестовом наборе из 12 накладных</dd></div>
+          <div><dt>10–20 с</dt><dd>от фотографии до проверенных цен и алерта</dd></div>
+          <div><dt>от 5%</dt><dd>порог роста цены для алерта, меняется в настройках</dd></div>
+        </dl>
+        <p class="foot small">SupplyRadar работает в облаке AWS, данные каждого аккаунта видит только его владелец.</p>
+      </section>`;
+    const card = app.querySelector("#auth-card");
+    let focusForm = false;
+    app.querySelectorAll("[data-scroll]").forEach((b) => b.addEventListener("click", () =>
+      app.querySelector("#" + b.dataset.scroll).scrollIntoView({ behavior: "smooth", block: "start" })));
+
     const draw = () => {
       const tabbed = mode === "signin" || mode === "signup";
       const heading = {
@@ -378,19 +442,7 @@
           <p class="field-hint">Минимум 8 символов, строчные буквы и цифры.</p>`;
       }
 
-      app.innerHTML = `
-        <div class="auth">
-          <section class="intro">
-            <img src="favicon.svg" alt="" width="44" height="44">
-            <h1>Узнайте, когда поставщик поднял цену</h1>
-            <p class="lead">Сфотографируйте накладную. SupplyRadar прочитает её, сверит цены с прошлыми поставками и подскажет, где дешевле.</p>
-            <ol class="how">
-              <li><div><b>Снимите накладную</b><span>Фото с телефона или PDF от поставщика.</span></div></li>
-              <li><div><b>Проверьте, что прочитал AI</b><span>Ошибки в суммах подсвечиваются, их можно исправить.</span></div></li>
-              <li><div><b>Получите алерт о росте цены</b><span>На сайте и по email, с поставщиком, у которого дешевле.</span></div></li>
-            </ol>
-          </section>
-          <div class="card">
+      card.innerHTML = `
             ${tabbed ? `
             <div class="tabs" role="tablist">
               <button type="button" role="tab" data-mode="signin" aria-selected="${mode === "signin"}" class="${mode === "signin" ? "active" : ""}">Вход</button>
@@ -399,17 +451,15 @@
             <form id="auth-form" novalidate>
               ${fields}
               <p class="field-error" id="auth-error" role="alert" hidden></p>
-              <button class="primary" type="submit">${submit}</button>
+              <button class="primary" type="submit">${submit}<span class="arrow" aria-hidden="true">↗</span></button>
             </form>
             <div class="alt small">
               ${mode === "signin" ? '<button type="button" class="link" data-mode="forgot">Забыли пароль?</button>' : ""}
               ${mode === "confirm" || mode === "reset" ? '<button type="button" class="link" id="resend">Отправить код ещё раз</button>' : ""}
               ${tabbed ? "" : '<button type="button" class="link" data-mode="signin">Вернуться ко входу</button>'}
-            </div>
-          </div>
-        </div>`;
+            </div>`;
 
-      app.querySelectorAll("[data-mode]").forEach((b) =>
+      card.querySelectorAll("[data-mode]").forEach((b) =>
         b.addEventListener("click", () => {
           const email = app.querySelector("#email");
           if (email) pendingEmail = email.value.trim();
@@ -437,7 +487,9 @@
       const errorEl = app.querySelector("#auth-error");
       const showError = (msg) => { errorEl.textContent = msg; errorEl.hidden = !msg; };
       const first = form.querySelector("input:not([value]), input[value='']") || form.querySelector("input");
-      if (first && document.activeElement !== first) first.focus({ preventScroll: true });
+      // On a phone the keyboard would cover the page the visitor has not read yet.
+      if (first && document.activeElement !== first && (focusForm || matchMedia("(min-width: 761px)").matches)) first.focus({ preventScroll: true });
+      focusForm = true;
 
       form.addEventListener("submit", async (ev) => {
         ev.preventDefault();
