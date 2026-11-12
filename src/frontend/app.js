@@ -20,6 +20,8 @@
   };
   // Series colours that stay readable on both the cream and the navy theme.
   const COLORS = ["#ff6b5b", "#4c7df0", "#e0a526", "#2fa37a", "#9b6be8", "#4bb3d6"];
+  // Each series also gets its own line pattern, so the chart does not rely on colour alone.
+  const DASHES = ["none", "7 4", "2 4", "10 4 2 4", "1 5", "12 6"];
   const REQUEST_TIMEOUT_MS = 20000;
   const PROCESSING_TIMEOUT_MS = 120000;
 
@@ -68,7 +70,7 @@
     if (Math.abs(pct) < 0.05) return '<span class="delta flat">0%</span>';
     const up = pct > 0;
     const value = Math.abs(pct).toLocaleString("ru-RU", { maximumFractionDigits: 1 });
-    return `<span class="delta ${up ? "up" : "down"}" title="${up ? "Цена выросла" : "Цена снизилась"}">${up ? "▲ +" : "▼ −"}${value}%</span>`;
+    return `<span class="delta ${up ? "up" : "down"}"><span class="sr-only">${up ? "Цена выросла: " : "Цена снизилась: "}</span><span aria-hidden="true">${up ? "▲" : "▼"}</span> ${up ? "+" : "−"}${value}%</span>`;
   };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const emptyState = (icon, title, text, actions = "") => `
@@ -94,7 +96,8 @@
     el.hidden = false;
     el.querySelector("button").onclick = () => { el.hidden = true; };
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { el.hidden = true; }, isError ? 7000 : 3500);
+    // Errors stay until dismissed: nobody should have to read against a timer (WCAG 2.2.1).
+    if (!isError) toastTimer = setTimeout(() => { el.hidden = true; }, 5000);
   }
 
   // Marks a button as working and returns a function that restores it.
@@ -444,9 +447,9 @@
 
       card.innerHTML = `
             ${tabbed ? `
-            <div class="tabs" role="tablist">
-              <button type="button" role="tab" data-mode="signin" aria-selected="${mode === "signin"}" class="${mode === "signin" ? "active" : ""}">Вход</button>
-              <button type="button" role="tab" data-mode="signup" aria-selected="${mode === "signup"}" class="${mode === "signup" ? "active" : ""}">Регистрация</button>
+            <div class="tabs" role="group" aria-label="Вход или регистрация">
+              <button type="button" data-mode="signin" aria-pressed="${mode === "signin"}">Вход</button>
+              <button type="button" data-mode="signup" aria-pressed="${mode === "signup"}">Регистрация</button>
             </div>` : `<h2>${heading[0]}</h2><p class="small muted" style="margin:0">${heading[1]}</p>`}
             <form id="auth-form" novalidate>
               ${fields}
@@ -651,10 +654,10 @@
         </div>
         <div class="actions">
           <label class="button primary camera-only">
-            Сфотографировать<input id="camera" type="file" accept="image/*" capture="environment" hidden>
+            Сфотографировать<input id="camera" class="sr-only" type="file" accept="image/*" capture="environment">
           </label>
           <label class="button">
-            Выбрать файл<input id="picker" type="file" accept="image/*,application/pdf" hidden>
+            Выбрать файл<input id="picker" class="sr-only" type="file" accept="image/*,application/pdf">
           </label>
         </div>
         <div id="progress" class="progress" aria-live="polite"></div>
@@ -789,7 +792,7 @@
         <td class="num" data-label="Кол-во"><input data-f="quantity" type="text" inputmode="decimal" value="${num(l.quantity)}" aria-label="Количество" ${cls(i, "quantity")}></td>
         <td class="unit" data-label="Ед."><input data-f="unit" value="${esc(l.unit)}" aria-label="Единица"></td>
         <td class="num" data-label="Цена"><input data-f="price" type="text" inputmode="decimal" value="${num(l.price)}" aria-label="Цена" ${cls(i, "price")}></td>
-        <td class="num" data-label="Сумма"><input data-f="total" type="text" inputmode="decimal" value="${num(l.total)}" aria-label="Сумма" ${cls(i, "total")}></td>
+        <td class="num" data-label="Сумма"><input data-f="total" type="text" inputmode="decimal" value="${num(l.total)}" aria-label="Сумма" ${cls(i, "total")}><small class="cell-hint" hidden></small></td>
         <td class="del"><button type="button" class="icon" data-del aria-label="Удалить строку">${ICONS.trash}</button></td>
       </tr>`;
 
@@ -867,8 +870,11 @@
       tbody.querySelectorAll("tr").forEach((tr) => {
         const [q, p, t] = ["quantity", "price", "total"].map((f) => toNum(tr.querySelector(`[data-f=${f}]`).value));
         const tIn = tr.querySelector("[data-f=total]");
-        tIn.classList.toggle("mismatch", q != null && p != null && t != null && Math.abs(q * p - t) > 1);
-        tIn.title = tIn.classList.contains("mismatch") ? `Кол-во × цена = ${money(q * p)}` : "";
+        const off = q != null && p != null && t != null && Math.abs(q * p - t) > 1;
+        const hint = tr.querySelector(".cell-hint");
+        tIn.classList.toggle("mismatch", off);
+        hint.hidden = !off;
+        hint.textContent = off ? `Кол-во × цена = ${money(Math.round(q * p * 100) / 100)}` : "";
         sum += t || 0;
       });
       const total = toNum(totalInput.value);
@@ -1027,11 +1033,11 @@
         ${names.map((n, i) => {
           const pts = groups[n].sort((a, b) => a.date.localeCompare(b.date));
           const color = COLORS[i % COLORS.length];
-          return `<polyline fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" points="${pts.map((p) => `${x(p.date)},${y(p.price)}`).join(" ")}"/>
+          return `<polyline fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-dasharray="${DASHES[i % DASHES.length]}" points="${pts.map((p) => `${x(p.date)},${y(p.price)}`).join(" ")}"/>
             ${pts.map((p) => `<circle cx="${x(p.date)}" cy="${y(p.price)}" r="4" fill="${color}" stroke="var(--surface)" stroke-width="2"><title>${esc(n)}: ${money(p.price)}, ${fmtDate(p.date)}</title></circle>`).join("")}`;
         }).join("")}
       </svg>`;
-    const legend = names.map((n, i) => `<span><i style="background:${COLORS[i % COLORS.length]}"></i>${esc(n)}</span>`).join("");
+    const legend = names.map((n, i) => `<span><svg viewBox="0 0 28 10" aria-hidden="true"><line x1="0" y1="5" x2="28" y2="5" stroke="${COLORS[i % COLORS.length]}" stroke-width="2.5" stroke-dasharray="${DASHES[i % DASHES.length]}"/></svg>${esc(n)}</span>`).join("");
     return `<div class="chart">${svg}<div class="legend">${legend}</div></div>`;
   }
 
