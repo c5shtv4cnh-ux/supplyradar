@@ -8,8 +8,9 @@ Routes (all require a valid Cognito ID token):
     GET  /products                products with latest prices per supplier
     GET  /products/{key}          price history of one product
     GET  /alerts                  latest price alerts
-    GET  /settings                alert threshold and email
-    PUT  /settings                change threshold / email (subscribes email to SNS)
+    GET  /settings                alert threshold, email, business profile, is_admin
+    PUT  /settings                change threshold / email (subscribes email to SNS) / business profile
+    GET  /admin/overview          service-wide numbers, admin accounts only
 """
 import json
 import logging
@@ -25,6 +26,8 @@ log.setLevel(logging.INFO)
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 REVIEWABLE = ("needs_review", "checked", "failed")
+# Business templates offered at sign-up. The web app holds the texts; the API only validates the key.
+BUSINESS_TYPES = ("cafe", "restaurant", "shop", "bakery", "other")
 
 
 class ApiError(Exception):
@@ -46,6 +49,8 @@ def handler(event, context):
     try:
         claims = event["requestContext"]["authorizer"]["jwt"]["claims"]
         user = {"id": claims["sub"], "email": claims.get("email")}
+        user["is_admin"] = str(claims.get("email_verified")).lower() == "true" \
+            and (user["email"] or "").lower() in config.ADMIN_EMAILS
         route = ROUTES.get(event.get("routeKey"))
         if route is None:
             raise ApiError(404, "Not found")
@@ -230,6 +235,8 @@ def _settings(user):
         "threshold_pct": s.get("threshold_pct", config.DEFAULT_THRESHOLD_PCT),
         "email": s.get("email"),
         "subscription_arn": s.get("subscription_arn"),
+        "business_type": s.get("business_type"),
+        "business_name": s.get("business_name"),
     }
 
 
@@ -247,7 +254,9 @@ def _pending(sub_arn):
 def get_settings(user, params, body):
     s = _settings(user)
     return {"threshold_pct": s["threshold_pct"], "email": s["email"], "account_email": user.get("email"),
-            "email_pending": bool(s["email"]) and _pending(s["subscription_arn"])}
+            "email_pending": bool(s["email"]) and _pending(s["subscription_arn"]),
+            "business_type": s["business_type"], "business_name": s["business_name"],
+            "is_admin": bool(user.get("is_admin"))}
 
 
 def put_settings(user, params, body):
@@ -255,9 +264,14 @@ def put_settings(user, params, body):
     threshold = _num(body.get("threshold_pct", current["threshold_pct"]), "threshold_pct")
     if not 0.5 <= threshold <= 100:
         raise ApiError(400, "Порог должен быть от 0.5 до 100 %")
-    email = (body.get("email") or "").strip().lower() or None
+    # A partial update (the onboarding step sends only the business profile) keeps the other fields.
+    email = (body["email"] or "").strip().lower() or None if "email" in body else current.get("email")
     if email and not EMAIL_RE.match(email):
         raise ApiError(400, "Некорректный email")
+    business_type = body.get("business_type", current.get("business_type")) or None
+    if business_type and business_type not in BUSINESS_TYPES:
+        raise ApiError(400, "Неизвестный тип бизнеса")
+    business_name = str(body.get("business_name", current.get("business_name")) or "").strip()[:80] or None
 
     sub_arn = current.get("subscription_arn")
     if email != current.get("email"):
@@ -283,10 +297,50 @@ def put_settings(user, params, body):
         "threshold_pct": threshold,
         "email": email,
         "subscription_arn": sub_arn,
+        "business_type": business_type,
+        "business_name": business_name,
         "updated_at": now_iso(),
     })
     return {"threshold_pct": threshold, "email": email,
+            "business_type": business_type, "business_name": business_name,
             "message": "Подтвердите подписку по ссылке в письме от AWS" if email and email != current.get("email") else "Сохранено"}
+
+
+# ---------- admin ----------
+
+def admin_overview(user, params, body):
+    """Numbers across all accounts. No invoice contents, no emails: counts and the latest activity only."""
+    if not user.get("is_admin"):
+        raise ApiError(403, "Доступно только администратору")
+    store = db.store()
+    invoices = store.scan_prefix("INV#")
+    settings = store.scan_sk("SETTINGS")
+    alerts = store.scan_prefix("ALERT#")
+    statuses, types = {}, {}
+    for inv in invoices:
+        statuses[inv.get("status") or "unknown"] = statuses.get(inv.get("status") or "unknown", 0) + 1
+    for s in settings:
+        types[s.get("business_type") or "none"] = types.get(s.get("business_type") or "none", 0) + 1
+    accounts = {i["PK"] for i in invoices} | {s["PK"] for s in settings}
+    week_ago = datetime.now(timezone.utc).timestamp() - 7 * 86400
+    def recent(item):
+        try:
+            return datetime.strptime(item.get("created_at", ""), "%Y-%m-%dT%H:%M:%SZ") \
+                .replace(tzinfo=timezone.utc).timestamp() >= week_ago
+        except ValueError:
+            return False
+    latest = sorted(invoices, key=lambda i: i.get("created_at") or "", reverse=True)[:10]
+    return {
+        "accounts": len(accounts),
+        "invoices": len(invoices),
+        "invoices_week": sum(1 for i in invoices if recent(i)),
+        "alerts": len(alerts),
+        "by_status": statuses,
+        "by_business_type": types,
+        "latest": [{"created_at": i.get("created_at"), "status": i.get("status"),
+                    "supplier_name": i.get("supplier_name"), "total": i.get("total"),
+                    "account": i["PK"][-6:]} for i in latest],
+    }
 
 
 ROUTES = {
@@ -299,4 +353,5 @@ ROUTES = {
     "GET /alerts": list_alerts,
     "GET /settings": get_settings,
     "PUT /settings": put_settings,
+    "GET /admin/overview": admin_overview,
 }

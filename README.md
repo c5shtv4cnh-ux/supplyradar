@@ -117,3 +117,4 @@ Cross-supplier matching worked: «СЛИВКИ 33% 0,5Л» and «Сливки 33
 | Terraform fmt / validate / offline plan | `make tf-test` | Terraform |
 | AI extraction accuracy | `GEMINI_API_KEY=… make eval` | Gemini key |
 | Browser test of the web app | `make local` then `node tests/e2e/ui.spec.mjs` | Node + Playwright |
+| Accessibility (WCAG 2.2 AA, axe) | after the browser test: `node tests/e2e/a11y.mjs` | + `axe-core` |

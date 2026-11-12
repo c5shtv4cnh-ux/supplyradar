@@ -6,8 +6,8 @@
   "start_url": "./#/invoices",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#eef2f0",
-  "theme_color": "#0b6e5f",
+  "background_color": "#f4ede0",
+  "theme_color": "#14213d",
   "icons": [
     { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]

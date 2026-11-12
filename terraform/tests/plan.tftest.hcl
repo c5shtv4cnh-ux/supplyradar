@@ -43,7 +43,7 @@ run "dev_plan" {
   }
 
   assert {
-    condition     = length(local.api_routes) == 9
+    condition     = length(local.api_routes) == 10
     error_message = "Every API route must be declared."
   }
 

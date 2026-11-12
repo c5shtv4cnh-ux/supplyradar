@@ -4,19 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>SupplyRadar</title>
-  <meta name="description" content="Проверка цен поставщиков по фото накладной">
-  <meta name="theme-color" content="#0b6e5f" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#101614" media="(prefers-color-scheme: dark)">
+  <meta name="description" content="Сфотографируйте накладную: SupplyRadar сверит цены с прошлыми поставками и сообщит, если поставщик поднял цену.">
+  <meta property="og:title" content="SupplyRadar: цены поставщиков под присмотром">
+  <meta property="og:description" content="Фото накладной, проверка AI и алерт о росте цены в тот же день.">
+  <meta property="og:type" content="website">
+  <meta name="theme-color" content="#14213d">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="favicon.svg">
   <link rel="manifest" href="manifest.webmanifest">
+  <link rel="preload" href="fonts/onest-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/onest-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <a class="skip" href="#app">К содержимому</a>
   <header class="topbar" id="topbar" hidden>
     <a class="brand" href="#/invoices">
-      <img src="favicon.svg" alt="" width="28" height="28">
+      <img src="favicon.svg" alt="" width="30" height="30">
       <span>SupplyRadar</span>
     </a>
     <nav class="nav" id="nav" aria-label="Разделы">
@@ -35,6 +39,10 @@
       <a href="#/settings" data-nav="settings">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
         <span>Настройки</span>
+      </a>
+      <a href="#/more" data-nav="more">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+        <span>Ещё</span>
       </a>
     </nav>
     <button class="link" id="logout" type="button">Выйти</button>

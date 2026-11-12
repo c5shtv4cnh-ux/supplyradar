@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT / "tests" / "unit"))
 import os  # noqa: E402
 
 os.environ.setdefault("AWS_DEFAULT_REGION", "eu-central-1")
+os.environ.setdefault("ADMIN_EMAILS", "owner@example.com")  # the demo account sees the admin panel
 
 import api  # noqa: E402
 import validate  # noqa: E402
@@ -113,7 +114,7 @@ def fake_extract(key):
 def make_token(email):
     sub = USERS.setdefault(email, {"sub": f"local-{len(USERS) + 1}"})["sub"]
     payload = base64.urlsafe_b64encode(json.dumps(
-        {"sub": sub, "email": email, "exp": int(time.time()) + 3600}).encode()).decode().rstrip("=")
+        {"sub": sub, "email": email, "email_verified": True, "exp": int(time.time()) + 3600}).encode()).decode().rstrip("=")
     return f"e30.{payload}.sig"
 
 

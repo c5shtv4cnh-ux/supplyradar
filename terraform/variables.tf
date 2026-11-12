@@ -25,6 +25,12 @@ variable "alarm_email" {
   default     = ""
 }
 
+variable "admin_emails" {
+  description = "Comma-separated emails that may open the admin panel. Empty: the alarm_email owner."
+  type        = string
+  default     = ""
+}
+
 variable "gemini_model" {
   description = "Gemini model id with a free tier (check Google AI Studio)."
   type        = string

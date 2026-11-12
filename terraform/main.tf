@@ -33,6 +33,7 @@ locals {
     "GET /alerts",
     "GET /settings",
     "PUT /settings",
+    "GET /admin/overview",
   ]
 
   common_env = {
@@ -46,6 +47,7 @@ locals {
     DEFAULT_THRESHOLD_PCT = tostring(var.alert_threshold_pct)
     MAX_RECEIVES          = tostring(local.max_receive_count)
     APP_URL               = module.frontend.url
+    ADMIN_EMAILS          = var.admin_emails != "" ? var.admin_emails : var.alarm_email
   }
 }
 

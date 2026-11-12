@@ -44,6 +44,9 @@ class MemoryStore:
     def scan_sk(self, sk):
         return [copy.deepcopy(v) for k, v in self.items.items() if k[1] == sk]
 
+    def scan_prefix(self, prefix):
+        return [copy.deepcopy(v) for k, v in self.items.items() if k[1].startswith(prefix)]
+
     def by_prefix(self, prefix):
         return [v for k, v in self.items.items() if k[1].startswith(prefix)]
 

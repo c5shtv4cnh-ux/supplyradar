@@ -88,6 +88,14 @@ class Store:
         }
         return self._collect(self._table.scan, kwargs, None)
 
+    def scan_prefix(self, prefix):
+        """Every user's items of one kind. Admin overview only: a full table scan."""
+        kwargs = {
+            "FilterExpression": "begins_with(SK, :p)",
+            "ExpressionAttributeValues": {":p": prefix},
+        }
+        return self._collect(self._table.scan, kwargs, None)
+
     @staticmethod
     def _collect(call, kwargs, limit):
         items = []
