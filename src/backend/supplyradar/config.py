@@ -10,6 +10,9 @@ GEMINI_KEY_PARAM = os.environ.get("GEMINI_KEY_PARAM", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
 APP_URL = os.environ.get("APP_URL", "")
 
+# Accounts that may open the admin panel (comma-separated, verified Cognito emails).
+ADMIN_EMAILS = {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
+
 DEFAULT_THRESHOLD_PCT = float(os.environ.get("DEFAULT_THRESHOLD_PCT", "5"))
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
 MAX_RECEIVES = int(os.environ.get("MAX_RECEIVES", "3"))

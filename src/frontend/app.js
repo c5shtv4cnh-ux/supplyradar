@@ -36,6 +36,16 @@
     check: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.8 2.8L16 9.5"/></svg>',
     calendar: '<svg viewBox="0 0 24 24"><path d="M4 6h16v14H4zM4 10h16M8 3v4M16 3v4"/></svg>',
     cloud: '<svg viewBox="0 0 24 24"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19 10a4 4 0 0 1-1 8z"/><path d="M4 4l16 16"/></svg>',
+    more: '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>',
+    truck: '<svg viewBox="0 0 24 24"><path d="M2 6h11v10H2zM13 9h5l4 4v3h-9z"/><circle cx="6.5" cy="18" r="2"/><circle cx="17.5" cy="18" r="2"/></svg>',
+    chat: '<svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12.5h5"/></svg>',
+    star: '<svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8z"/></svg>',
+    shield: '<svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z"/><path d="M9 12l2.2 2.2L15 10"/></svg>',
+    cup: '<svg viewBox="0 0 24 24"><path d="M4 8h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM17 10h2a2 2 0 0 1 0 4h-2M8 3v2M12 3v2"/></svg>',
+    plate: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/></svg>',
+    bag: '<svg viewBox="0 0 24 24"><path d="M5 8h14l-1 12H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>',
+    bread: '<svg viewBox="0 0 24 24"><path d="M4 11a4 4 0 0 1 4-5h8a4 4 0 0 1 4 5c0 1-1 2-2 2v6H6v-6c-1 0-2-1-2-2z"/><path d="M10 6v3M14 6v3"/></svg>',
+    box: '<svg viewBox="0 0 24 24"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>',
     trash: '<svg viewBox="0 0 24 24"><path d="M5 7h14M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
   };
 
@@ -108,6 +118,43 @@
     btn.innerHTML = `<span class="spinner" aria-hidden="true"></span>${esc(text || btn.textContent)}`;
     return () => { btn.disabled = false; btn.removeAttribute("aria-busy"); btn.innerHTML = html; };
   }
+
+  // Business templates: chosen once after sign-up, they set a sensible alert threshold and the hints the owner sees.
+  const BUSINESS = {
+    cafe: { label: "Кофейня", icon: "cup", threshold: 5,
+      about: "Молоко, сливки, зерно, сиропы, выпечка",
+      watch: "молоко, сливки и кофейное зерно: на них уходит большая часть закупок кофейни" },
+    restaurant: { label: "Ресторан или кафе", icon: "plate", threshold: 5,
+      about: "Мясо, рыба, овощи, бакалея, напитки",
+      watch: "мясо, рыбу и овощи: их цены меняются чаще всего" },
+    shop: { label: "Магазин", icon: "bag", threshold: 3,
+      about: "Широкий ассортимент и много поставщиков",
+      watch: "ходовые товары: при небольшой наценке заметен даже рост на 3%" },
+    bakery: { label: "Пекарня или кондитерская", icon: "bread", threshold: 4,
+      about: "Мука, масло, сахар, яйца, начинки",
+      watch: "муку, сливочное масло и яйца: это основа себестоимости выпечки" },
+    other: { label: "Другой бизнес", icon: "box", threshold: 5,
+      about: "Любые регулярные закупки у поставщиков",
+      watch: "товары, которые вы покупаете чаще всего" },
+  };
+
+  // Saves rows as a CSV file that Excel opens directly: UTF-8 with BOM, ";" separator, decimal comma.
+  function downloadCsv(fileName, header, rows) {
+    const cell = (v) => {
+      let t = typeof v === "number" ? String(v).replace(".", ",") : String(v ?? "");
+      if (typeof v !== "number" && /^[=+\-@\t]/.test(t)) t = "'" + t; // a cell must never start a formula
+      return /[";\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+    };
+    const text = [header, ...rows].map((r) => r.map(cell).join(";")).join("\r\n");
+    const url = URL.createObjectURL(new Blob(["\ufeff" + text], { type: "text/csv;charset=utf-8" }));
+    const a = Object.assign(document.createElement("a"), { href: url, download: fileName });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast(`Файл ${fileName} сохранён`);
+  }
+  const today = () => new Date().toISOString().slice(0, 10);
 
   // ------------------------------------------------------------ auth (Cognito)
 
@@ -196,6 +243,7 @@
     const s = session.get();
     session.clear();
     leaveGuard = null;
+    profile = null;
     alertCount.value = null;
     // Revoke the refresh token so a copied session cannot be reused. Best effort.
     if (s && s.refreshToken) cognito("RevokeToken", { Token: s.refreshToken }).catch(() => {});
@@ -233,6 +281,13 @@
     return data;
   }
 
+  // The signed-in account's settings: business template, admin flag. Loaded once, dropped on sign-out and on save.
+  let profile = null;
+  async function loadProfile() {
+    profile ||= await api("GET", "/settings");
+    return profile;
+  }
+
   // Number of price alerts, shown on the navigation tab. Refreshed at most once a minute.
   const alertCount = { value: null, at: 0 };
   async function refreshAlertCount(force) {
@@ -262,7 +317,13 @@
     [/^#\/products\/(.+)$/, renderProduct, true, "Товар"],
     [/^#\/alerts$/, renderAlerts, true, "Алерты"],
     [/^#\/settings$/, renderSettings, true, "Настройки"],
+    [/^#\/welcome$/, renderWelcome, true, "Знакомство"],
+    [/^#\/more$/, renderMore, true, "Ещё"],
+    [/^#\/(suppliers|assistant|subscription)$/, renderSoon, true, "Скоро"],
+    [/^#\/admin$/, renderAdmin, true, "Админ-панель"],
   ];
+  // Pages that live under the «Ещё» tab.
+  const MORE_SECTIONS = ["more", "suppliers", "assistant", "subscription", "admin"];
   let renderId = 0;
   let currentHash = null;
   // A page with unsaved edits sets this; the router asks before leaving it.
@@ -308,8 +369,10 @@
     document.getElementById("topbar").hidden = !needsAuth;
     document.body.className = needsAuth ? "app" : "landing";
     const section = hash.split("/")[1];
+    const tab = MORE_SECTIONS.includes(section) ? "more" : section;
+    document.getElementById("nav").hidden = section === "welcome";
     document.querySelectorAll("[data-nav]").forEach((a) => {
-      const on = a.dataset.nav === section;
+      const on = a.dataset.nav === tab;
       a.classList.toggle("active", on);
       if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
     });
@@ -322,6 +385,15 @@
     }
     const args = hash.match(re).slice(1).map(decodeURIComponent);
     try {
+      if (needsAuth) {
+        // A new account chooses its business template before anything else.
+        const p = await loadProfile();
+        if (id !== renderId) return;
+        if (!p.business_type !== (section === "welcome")) {
+          location.hash = p.business_type ? "#/invoices" : "#/welcome";
+          return;
+        }
+      }
       await render(...args, () => id === renderId);
       if (id === renderId && !samePage) {
         const h1 = app.querySelector("h1");
@@ -667,8 +739,10 @@
     const list = app.querySelector("#list");
     const drawList = () => {
       if (!invoices.length) {
+        const tpl = BUSINESS[(profile || {}).business_type];
         list.innerHTML = emptyState("doc", "Пока нет накладных",
-          "Загрузите первую накладную выше. Цены начнут сравниваться со второй поставки того же товара.");
+          "Загрузите первую накладную выше. Цены начнут сравниваться со второй поставки того же товара."
+          + (tpl ? ` Для начала отслеживайте ${esc(tpl.watch)}.` : ""));
         return;
       }
       const q = listState.query.toLowerCase();
@@ -690,8 +764,13 @@
           <div class="toolbar">
             <div class="search"><input id="search" type="search" placeholder="Поставщик или номер" aria-label="Поиск по накладным" value="${esc(listState.query)}"></div>
             <div class="chips" role="group" aria-label="Фильтр по статусу"></div>
+            <button type="button" class="export" id="export">Скачать в Excel</button>
           </div>
           <div id="rows"></div>`;
+        list.querySelector("#export").addEventListener("click", () => downloadCsv(`nakladnye-${today()}.csv`,
+          ["Дата", "Поставщик", "Номер", "Сумма, ₸", "Строк", "Статус", "Замечаний"],
+          invoices.map((i) => [(i.invoice_date || i.created_at || "").slice(0, 10), i.supplier_name || i.file_name || "",
+            i.invoice_number || "", i.total == null ? "" : Number(i.total), i.lines || "", (STATUS[i.status] || [i.status])[0], i.issues || 0])));
         list.querySelector("#search").addEventListener("input", (e) => { listState.query = e.target.value; drawList(); });
       }
       list.querySelector(".chips").innerHTML = FILTERS.filter(([k]) => k === "all" || counts[k]).map(([k, label]) =>
@@ -987,8 +1066,16 @@
     let query = "";
     list.innerHTML = `
       <div class="toolbar"><div class="search"><input id="search" type="search" placeholder="Найти товар" aria-label="Поиск товара"></div>
-        <span class="small muted">${items.length} ${plural(items.length, "товар", "товара", "товаров")}</span></div>
+        <span class="small muted">${items.length} ${plural(items.length, "товар", "товара", "товаров")}</span>
+        <button type="button" class="export" id="export">Скачать в Excel</button></div>
       <div id="rows"></div>`;
+    list.querySelector("#export").addEventListener("click", () => downloadCsv(`ceny-${today()}.csv`,
+      ["Товар", "Единица", "Последняя цена, ₸", "Изменение, %", "Лучшая цена, ₸", "Лучший поставщик", "Поставщиков"],
+      items.map((p) => {
+        const { sup, change } = productStats(p);
+        return [p.name, p.unit || "", p.last_price == null ? "" : Number(p.last_price),
+          change == null ? "" : Math.round(change * 10) / 10, sup[0] ? Number(sup[0].price) : "", sup[0] ? sup[0].name : "", sup.length];
+      })));
     const draw = () => {
       const shown = items.filter((p) => String(p.name).toLowerCase().includes(query));
       list.querySelector("#rows").innerHTML = shown.length ? `<div class="table-wrap"><table class="responsive products">
@@ -1120,9 +1207,18 @@
   async function renderSettings(alive) {
     const s = await api("GET", "/settings");
     if (!alive()) return;
+    profile = s;
     app.innerHTML = `
       <div class="page-head"><h1>Настройки</h1></div>
       <form class="card" id="settings" style="max-width:520px" novalidate>
+        <h2>Бизнес</h2>
+        <label for="business-type">Тип бизнеса</label>
+        <select id="business-type">
+          ${Object.entries(BUSINESS).map(([k, b]) => `<option value="${k}"${s.business_type === k ? " selected" : ""}>${b.label}</option>`).join("")}
+        </select>
+        <label for="business-name">Название</label>
+        <input id="business-name" type="text" maxlength="80" autocomplete="organization" value="${esc(s.business_name || "")}">
+        <p class="field-hint">Необязательно. Например, «Кофейня на Абая».</p>
         <h2>Алерты</h2>
         <label for="threshold">Сообщать, если цена выросла больше чем на, %</label>
         <input id="threshold" type="number" inputmode="decimal" min="0.5" max="100" step="0.5" value="${esc(s.threshold_pct)}" required>
@@ -1152,7 +1248,9 @@
       if (email && !app.querySelector("#email").checkValidity()) return fail("Введите корректный email", app.querySelector("#email"));
       const done = busyButton(ev.submitter || form.querySelector("button[type=submit]"), "Сохраняем…");
       try {
-        const r = await api("PUT", "/settings", { threshold_pct: threshold, email });
+        const r = await api("PUT", "/settings", { threshold_pct: threshold, email,
+          business_type: app.querySelector("#business-type").value, business_name: app.querySelector("#business-name").value });
+        profile = null;
         toast(r.message || "Настройки сохранены");
         reload();
       } catch (err) {
@@ -1160,6 +1258,157 @@
         if (!err.silent) { errorEl.textContent = err.message; errorEl.hidden = false; }
       }
     });
+  }
+
+  // ------------------------------------------------------------ welcome (business template)
+
+  async function renderWelcome() {
+    app.innerHTML = `
+      <div class="page-head"><h1>Какой у вас бизнес?</h1>
+        <p class="sub">Подберём порог алертов и подсказки под ваши закупки. Изменить выбор можно в настройках.</p></div>
+      <form class="card" id="welcome" style="max-width:720px" novalidate>
+        <fieldset class="templates">
+          <legend>Тип бизнеса</legend>
+          ${Object.entries(BUSINESS).map(([k, b]) => `
+            <label class="template">
+              <input type="radio" name="business_type" value="${k}">
+              <span class="template-icon" aria-hidden="true">${ICONS[b.icon]}</span>
+              <span><b>${b.label}</b><span class="small muted">${b.about}</span></span>
+            </label>`).join("")}
+        </fieldset>
+        <p class="template-note small" id="template-note" aria-live="polite" hidden></p>
+        <label for="business-name">Название <span class="muted">(необязательно)</span></label>
+        <input id="business-name" type="text" maxlength="80" autocomplete="organization" placeholder="Кофейня на Абая">
+        <p class="field-error" id="welcome-error" role="alert" hidden></p>
+        <div class="actionbar">
+          <button class="primary" type="submit">Продолжить</button>
+          <button class="link" type="button" id="skip">Пропустить</button>
+        </div>
+      </form>`;
+    const form = app.querySelector("#welcome");
+    const errorEl = app.querySelector("#welcome-error");
+    const note = app.querySelector("#template-note");
+    form.addEventListener("change", (e) => {
+      if (e.target.name !== "business_type") return;
+      const b = BUSINESS[e.target.value];
+      errorEl.hidden = true;
+      note.hidden = false;
+      note.textContent = `Алерт придёт при росте цены больше чем на ${b.threshold}%. Советуем отслеживать ${b.watch}.`;
+    });
+    const save = async (type, btn) => {
+      const done = busyButton(btn, "Сохраняем…");
+      try {
+        await api("PUT", "/settings", { business_type: type, threshold_pct: BUSINESS[type].threshold,
+          business_name: app.querySelector("#business-name").value });
+        profile = null;
+        location.hash = "#/invoices";
+      } catch (err) {
+        done();
+        if (!err.silent) { errorEl.textContent = err.message; errorEl.hidden = false; }
+      }
+    };
+    form.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      const picked = form.querySelector("input[name=business_type]:checked");
+      if (!picked) {
+        errorEl.textContent = "Выберите тип бизнеса";
+        errorEl.hidden = false;
+        form.querySelector("input[name=business_type]").focus();
+        return;
+      }
+      save(picked.value, ev.submitter || form.querySelector("button[type=submit]"));
+    });
+    app.querySelector("#skip").addEventListener("click", (ev) => save("other", ev.currentTarget));
+  }
+
+  // ------------------------------------------------------------ more: coming features and admin
+
+  const SOON = {
+    suppliers: { icon: "truck", title: "Поставщики", lead: "Каталог поставщиков с актуальными прайсами.",
+      points: ["Поставщик ведёт свой кабинет и сам обновляет цены на товары",
+        "Вы ищете товар и сравниваете предложения с ценами из своих накладных",
+        "Заявка поставщику отправляется в один клик"] },
+    assistant: { icon: "chat", title: "AI-помощник", lead: "Персональный помощник по закупкам.",
+      points: ["Отвечает на вопросы по вашим накладным: «сколько я переплатил за молоко в этом месяце?»",
+        "Подсказывает, у кого и когда выгоднее купить",
+        "Готовит письмо поставщику с просьбой вернуть прежнюю цену"] },
+    subscription: { icon: "star", title: "Подписка", lead: "Тарифы для бизнеса любого размера.",
+      points: ["Бесплатный тариф: накладные, сверка цен и алерты, как сейчас",
+        "Pro: AI-помощник, отчёты о переплатах и выгрузки без ограничений",
+        "Business: несколько точек и сотрудников в одном аккаунте"],
+      note: "Оплата пока не подключена: сейчас все функции сервиса бесплатны." },
+  };
+  const soonBadge = '<span class="badge soon">В разработке</span>';
+
+  async function renderMore() {
+    const tile = (href, icon, title, text, mark) => `
+      <li><a class="card tile" href="${href}">
+        <span class="tile-icon" aria-hidden="true">${ICONS[icon]}</span>
+        <span class="tile-text"><b>${title}</b><span class="small muted">${text}</span></span>
+        ${mark}
+      </a></li>`;
+    app.innerHTML = `
+      <div class="page-head"><h1>Ещё</h1>
+        <p class="sub">Новые разделы SupplyRadar. Те, что отмечены «В разработке», пока только описаны.</p></div>
+      <ul class="tiles">
+        ${Object.entries(SOON).map(([k, f]) => tile(`#/${k}`, f.icon, f.title, f.lead, soonBadge)).join("")}
+        ${(profile || {}).is_admin ? tile("#/admin", "shield", "Админ-панель", "Сводка по всему сервису. Видна только администратору.", "") : ""}
+      </ul>`;
+  }
+
+  async function renderSoon(kind) {
+    const f = SOON[kind];
+    document.title = `${f.title} — SupplyRadar`;
+    app.innerHTML = `
+      <a class="back" href="#/more">← Ещё</a>
+      <div class="page-head"><h1>${f.title}</h1></div>
+      <div class="card soon-card" style="max-width:640px">
+        <p>${soonBadge}</p>
+        <p class="lead-text">${f.lead}</p>
+        <h2>Что здесь появится</h2>
+        <ul class="plain">${f.points.map((p) => `<li>${p}</li>`).join("")}</ul>
+        <p class="small muted">${f.note || "Раздел ещё не работает. Мы сообщим на email из настроек, когда он откроется."}</p>
+        <div class="actionbar"><a class="button" href="#/invoices">К накладным</a></div>
+      </div>`;
+  }
+
+  async function renderAdmin(alive) {
+    if (!(profile || {}).is_admin) {
+      app.innerHTML = `<div class="page-head"><h1>Админ-панель</h1></div>
+        <div class="card">${emptyState("shield", "Раздел только для администратора",
+          "У этого аккаунта нет прав администратора.", '<a class="button" href="#/invoices">К накладным</a>')}</div>`;
+      return;
+    }
+    const d = await api("GET", "/admin/overview");
+    if (!alive()) return;
+    const count = (title, rows) => `
+      <div class="card flush"><div class="toolbar"><h2 style="margin:0">${title}</h2></div>
+        ${rows.length ? `<table><thead><tr><th>Значение</th><th class="num">Количество</th></tr></thead>
+          <tbody>${rows.map(([label, n]) => `<tr><td>${label}</td><td class="num">${esc(n)}</td></tr>`).join("")}</tbody></table>`
+          : '<p class="muted" style="padding:16px 22px;margin:0">Пока нет данных.</p>'}
+      </div>`;
+    const fact = (label, value, hint) => `<div class="card"><div class="small muted">${label}</div><div class="v">${esc(value)}</div><div class="small muted">${hint}</div></div>`;
+    app.innerHTML = `
+      <a class="back" href="#/more">← Ещё</a>
+      <div class="page-head"><h1>Админ-панель</h1>
+        <p class="sub">Сводка по всем аккаунтам. Содержимое чужих накладных и email здесь не показываются.</p></div>
+      <div class="facts four">
+        ${fact("Аккаунты", d.accounts, "с данными в сервисе")}
+        ${fact("Накладные", d.invoices, "за всё время")}
+        ${fact("За 7 дней", d.invoices_week, "новых накладных")}
+        ${fact("Алерты", d.alerts, "о росте цен")}
+      </div>
+      <div class="grid-2">
+        ${count("Накладные по статусам", Object.entries(d.by_status || {}).map(([k, n]) => [badge(k), n]))}
+        ${count("Аккаунты по типу бизнеса", Object.entries(d.by_business_type || {}).map(([k, n]) => [esc(BUSINESS[k] ? BUSINESS[k].label : "Не выбран"), n]))}
+      </div>
+      <div class="card flush" style="margin-top:16px"><div class="toolbar"><h2 style="margin:0">Последние накладные</h2></div>
+        ${(d.latest || []).length ? `<div class="table-wrap"><table class="responsive">
+          <thead><tr><th>Поставщик</th><th class="num">Сумма</th><th>Загружена</th><th>Аккаунт</th><th class="num">Статус</th></tr></thead>
+          <tbody>${d.latest.map((i) => `<tr><td data-m="wide">${esc(i.supplier_name || "Без названия")}</td><td class="num">${money(i.total)}</td>
+            <td data-m="sub">${fmtDate(i.created_at)}</td><td data-m="sub">…${esc(i.account)}</td><td class="num">${badge(i.status)}</td></tr>`).join("")}</tbody></table></div>`
+          : '<p class="muted" style="padding:16px 22px;margin:0">Накладных пока нет.</p>'}
+      </div>`;
   }
 
   // ------------------------------------------------------------ start

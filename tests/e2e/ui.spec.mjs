@@ -3,7 +3,7 @@
 // Walks the demo: sign up, password reset, three invoices -> price alert,
 // a broken invoice -> review -> confirm, error and empty states, phone layout.
 import { chromium } from "playwright";
-import { mkdirSync } from "node:fs";
+import fs, { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -38,8 +38,19 @@ await page.waitForSelector("#password");
 await page.fill("#email", "owner@example.com");
 await page.fill("#password", "demo1234");
 await page.click("button[type=submit]");
-await page.waitForSelector("#drop");
+// A new account first picks its business template.
+await page.waitForSelector("#welcome");
 check(true, "sign up, confirm and sign in");
+check(!(await page.isVisible("#nav")), "welcome step hides the navigation until a template is chosen");
+await page.click("#welcome button[type=submit]");
+check((await page.textContent("#welcome-error")).includes("Выберите"), "welcome step asks to choose a business type");
+await page.check("input[name=business_type][value=cafe]");
+check((await page.textContent("#template-note")).includes("5%"), "template explains the alert threshold it sets");
+await page.fill("#business-name", "Кофейня на Абая");
+await shot("10-welcome.png");
+await page.click("#welcome button[type=submit]");
+await page.waitForSelector("#drop");
+check((await page.textContent("#list")).includes("кофейное зерно"), "empty invoice list carries the template hint");
 check(await page.isVisible("text=Пока нет накладных"), "empty invoice list explains what to do");
 
 // Password reset, then sign in with the new password.
@@ -111,6 +122,29 @@ await page.click("#settings button[type=submit]");
 await page.waitForSelector("#toast:not([hidden])");
 await shot("07-settings.png");
 check(true, "settings saved");
+check(await page.inputValue("#business-type") === "cafe" && await page.inputValue("#business-name") === "Кофейня на Абая",
+  "settings keep the business template");
+
+// Excel export, coming-soon sections and the admin panel.
+await page.goto(base + "/#/invoices");
+await page.waitForSelector("#export");
+const [download] = await Promise.all([page.waitForEvent("download"), page.click("#export")]);
+const csv = fs.readFileSync(await download.path(), "utf8");
+check(csv.charCodeAt(0) === 0xfeff && csv.includes("Поставщик;Номер") && csv.split("\r\n").length === 5,
+  "invoices export to a CSV that Excel opens");
+await page.click("[data-nav=more]");
+await page.waitForSelector(".tiles");
+check((await page.$$(".tile .badge.soon")).length === 3 && await page.isVisible(".tile:has-text('Админ-панель')"),
+  "«Ещё» lists three coming sections and the admin panel");
+await shot("11-more.png");
+await page.click(".tile:has-text('Подписка')");
+await page.waitForSelector(".soon-card");
+check((await page.textContent(".soon-card")).includes("В разработке"), "a coming section says it is not ready yet");
+await page.goto(base + "/#/admin");
+await page.waitForSelector(".facts.four");
+check((await page.textContent(".facts.four")).includes("Накладные") && (await page.$$("tbody tr")).length >= 4,
+  "admin panel shows service-wide numbers");
+await shot("12-admin.png");
 
 await page.goto(base + "/#/invoices");
 await page.waitForSelector("tr[data-id]");

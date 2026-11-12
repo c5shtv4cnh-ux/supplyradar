@@ -477,6 +477,46 @@ table.lines tfoot td { border-top: 1px solid var(--border); border-bottom: 0; pa
 .facts .v { font-size: 1.875rem; line-height: 1.25; font-weight: 400; letter-spacing: -.03em; }
 .facts .v .delta { font-weight: 500; }
 @media (max-width: 720px) { .facts { grid-template-columns: 1fr 1fr; } .facts .card:first-child { grid-column: 1 / -1; } }
+.facts.four { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 720px) { .facts.four { grid-template-columns: 1fr 1fr; } .facts.four .card:first-child { grid-column: auto; } }
+
+/* ---------- business templates (welcome step) ---------- */
+fieldset.templates { border: 0; padding: 0; margin: 0 0 6px; min-width: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+fieldset.templates legend { padding: 0; margin-bottom: 10px; font-weight: 600; }
+.template {
+  display: flex; align-items: center; gap: 12px; margin: 0; padding: 14px; min-height: 72px; cursor: pointer;
+  border: 1px solid var(--control-border); border-radius: var(--radius); background: var(--surface);
+}
+.template input { position: absolute; opacity: 0; width: 1px; height: 1px; min-height: 0; }
+.template b { display: block; font-weight: 600; }
+.template .small { display: block; }
+.template-icon { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--surface-2); }
+.template-icon svg, .tile-icon svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.template:hover { background: var(--surface-2); }
+/* The chosen template is marked by a thicker border and a check, not by colour alone. */
+.template:has(input:checked) { border-color: var(--accent-ink); box-shadow: inset 0 0 0 1px var(--accent-ink); }
+.template:has(input:checked)::after { content: "✓"; margin-left: auto; font-weight: 700; color: var(--accent-ink); }
+.template:has(input:focus-visible) { outline: 2px solid #fff; outline-offset: 1px; box-shadow: 0 0 0 5px var(--navy); }
+@media (prefers-color-scheme: dark) { .template:has(input:focus-visible) { box-shadow: 0 0 0 5px #000; } }
+.template-note { margin: 10px 0 0; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--info-bg); color: var(--info); }
+@media (max-width: 560px) { fieldset.templates { grid-template-columns: 1fr; } }
+
+/* ---------- «Ещё»: coming features, admin ---------- */
+.tiles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.tile { display: flex; align-items: center; gap: 14px; margin: 0; text-decoration: none; color: var(--text); min-height: 84px; }
+.tile:hover { background: var(--surface-2); }
+.tile-icon { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; background: var(--surface-2); }
+.tile-text { flex: 1; min-width: 0; }
+.tile-text b { display: block; font-weight: 600; }
+.tile-text .small { display: block; }
+.badge.soon { background: var(--warn-bg); color: var(--warn); }
+.soon-card .lead-text { font-size: 1.125rem; margin: 0 0 18px; }
+.soon-card ul.plain { margin: 0 0 16px; padding-left: 20px; }
+.soon-card ul.plain li { margin-bottom: 6px; }
+.toolbar .export { margin-left: auto; min-height: 38px; }
+.tiles li { min-width: 0; }
+@media (max-width: 420px) { .tile { flex-wrap: wrap; } .tile-text { flex-basis: 150px; } }
+@media (max-width: 720px) { .tiles { grid-template-columns: 1fr; } .toolbar .export { margin-left: 0; flex: 1 1 100%; min-height: 44px; } }
 
 .chart svg { width: 100%; height: auto; display: block; overflow: visible; }
 .chart .axis { stroke: var(--border); }

@@ -13,6 +13,7 @@ const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
 let failures = 0;
 let session = null;
+let newcomer = null;
 
 async function audit(page, name) {
   await page.addScriptTag({ content: axeSource });
@@ -89,7 +90,37 @@ for (const [label, options] of [
   await audit(page, `${label}: product history`);
   await visit("/alerts", ".alert-card", "alerts");
   await visit("/settings", "#threshold", "settings");
+  await visit("/more", ".tiles", "more");
+  await visit("/subscription", ".soon-card", "coming section");
+  await visit("/admin", ".facts.four", "admin panel");
   await visit("/invoices/deadbeef-0000", ".error-state", "not found");
+  // The welcome step, as a second account that has not chosen a template yet.
+  if (!newcomer) {
+    await page.evaluate(() => localStorage.removeItem("sr.session"));
+    await page.goto(base + "/#/login");
+    await page.reload();
+    await page.waitForSelector("#auth-form");
+    await page.click("[data-mode=signup]");
+    await page.fill("#email", "newcomer@example.com");
+    await page.fill("#password", "demo1234");
+    await page.click("button[type=submit]");
+    await page.waitForSelector("#code");
+    await page.fill("#code", "123456");
+    await page.click("button[type=submit]");
+    await page.waitForSelector("#password");
+    await page.fill("#email", "newcomer@example.com");
+    await page.fill("#password", "demo1234");
+    await page.click("button[type=submit]");
+    await page.waitForSelector("#welcome");
+    newcomer = await page.evaluate(() => localStorage.getItem("sr.session"));
+  } else {
+    await page.evaluate((s) => localStorage.setItem("sr.session", s), newcomer);
+    await page.goto(base + "/#/welcome");
+    await page.reload();
+    await page.waitForSelector("#welcome");
+  }
+  await page.check("input[name=business_type][value=shop]");
+  await audit(page, `${label}: welcome`);
   await page.close();
 }
 
