@@ -43,7 +43,6 @@
   --shadow: 0 1px 2px rgba(20, 33, 61, .04), 0 12px 32px -16px rgba(20, 33, 61, .18);
   --focus: 0 0 0 3px rgba(255, 107, 91, .45);
   --tabbar-h: 0px;
-  --band-h: 290px;
   /* Ribbed glass over a navy field with one coral light: the look of every dark surface. */
   --ribs: repeating-linear-gradient(90deg, rgba(255, 255, 255, .06) 0, rgba(255, 255, 255, 0) 3px, rgba(0, 0, 0, .1) 6px, rgba(255, 255, 255, .06) 8px);
   color-scheme: light;
@@ -91,15 +90,15 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Signed-in pages open on a navy band; the page title sits on it and the cards overlap its edge. */
+/* Signed-in pages sit on one navy field that fills the whole viewport and stays put while content scrolls. */
+body.app { background: var(--navy); }
 body.app::before {
-  content: ""; position: absolute; z-index: -1; top: 0; left: 0; right: 0; height: var(--band-h);
-  border-radius: 0 0 28px 28px;
+  content: ""; position: fixed; z-index: -1; inset: 0;
   background:
     var(--ribs),
-    radial-gradient(38% 90% at 78% 96%, rgba(255, 107, 91, .62), transparent 70%),
-    radial-gradient(45% 80% at 12% 0%, #2c4580, transparent 70%),
-    radial-gradient(40% 70% at 100% 0%, #3a5594, transparent 70%),
+    radial-gradient(42% 60% at 82% 100%, rgba(255, 107, 91, .5), transparent 70%),
+    radial-gradient(45% 55% at 10% 0%, #2c4580, transparent 70%),
+    radial-gradient(40% 50% at 100% 0%, #3a5594, transparent 70%),
     var(--navy);
 }
 body { isolation: isolate; }
@@ -162,7 +161,7 @@ body.app .container > :nth-child(n+4) { animation-delay: .12s; }
 .topbar button.link:hover { color: #fff; background: rgba(255, 255, 255, .08); }
 
 @media (max-width: 720px) {
-  :root { --tabbar-h: 62px; --band-h: 210px; }
+  :root { --tabbar-h: 62px; }
   /* backdrop-filter would make the topbar the containing block of the fixed tab bar. */
   .topbar {
     position: static; margin: 0; padding: 0 8px 0 16px; border: 0; border-radius: 0; box-shadow: none;
@@ -445,14 +444,9 @@ table.lines tfoot td { border-top: 1px solid var(--border); border-bottom: 0; pa
 /* ------------------------------------------------------------ alerts */
 
 .overpay {
-  display: flex; align-items: flex-end; gap: 24px; flex-wrap: wrap; padding: 28px; border: 0;
+  display: flex; align-items: flex-end; gap: 24px; flex-wrap: wrap; padding: 28px;
   --muted: rgba(244, 237, 224, .76);
-  color: var(--cream);
-  background:
-    var(--ribs),
-    radial-gradient(50% 120% at 92% 100%, rgba(255, 107, 91, .55), transparent 70%),
-    radial-gradient(60% 100% at 0% 0%, #2c4580, transparent 70%),
-    var(--navy);
+  color: var(--cream); background: #1a2a4c; border-color: rgba(255, 255, 255, .12);
 }
 .overpay .stat { font-size: 64px; line-height: 1; font-weight: 300; letter-spacing: -.04em; color: var(--coral); margin-top: 6px; }
 .overpay .stat.zero { color: #8fe3b4; }
@@ -610,7 +604,7 @@ body.landing .container { max-width: none; padding: 0; }
 .skeleton { display: grid; gap: 12px; }
 .sk { height: 14px; border-radius: 6px; background: var(--skeleton); position: relative; overflow: hidden; }
 .sk.h1 { height: 40px; width: 260px; margin: 10px 0 18px; background: rgba(255, 255, 255, .14); }
-.sk.block { height: 120px; border-radius: var(--radius-lg); }
+.sk.block { height: 120px; border-radius: var(--radius-lg); background: rgba(255, 255, 255, .1); }
 .sk::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .45), transparent); animation: shimmer 1.3s infinite; }
 @media (prefers-color-scheme: dark) { .sk::after { background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .06), transparent); } }
 @keyframes shimmer { to { transform: translateX(100%); } }
