@@ -1847,7 +1847,7 @@
       </div>
       <div class="card flush"><div class="toolbar"><h2 style="margin:0">Где переплачено</h2>
           ${d.items.length ? '<button type="button" class="export" id="export">Скачать в Excel</button>' : ""}</div>
-        ${d.items.length ? `<div class="table-wrap"><table class="responsive">
+        ${d.items.length ? `<div class="table-wrap" tabindex="0" role="region" aria-label="Где переплачено"><table class="responsive">
           <thead><tr><th>Товар</th><th class="num">Куплено</th><th class="num">Переплата</th><th class="num">Лучшая цена</th></tr></thead>
           <tbody>${d.items.map((i) => `<tr class="clickable" data-key="${esc(i.product_key)}">
             <td data-m="wide"><a class="row-link" href="#/products/${encodeURIComponent(i.product_key)}">${esc(i.name)}</a>
@@ -1860,7 +1860,7 @@
         <table><thead><tr><th>Поставщик</th><th class="num">Переплата</th></tr></thead>
         <tbody>${d.by_supplier.map((s) => `<tr><td>${esc(s.supplier)}</td><td class="num">${money(s.overpay)}</td></tr>`).join("")}</tbody></table></div>` : ""}
       <div class="card flush" style="margin-top:16px"><div class="toolbar"><h2 style="margin:0">Отчёт по месяцам</h2></div>
-        <div class="table-wrap"><table>
+        <div class="table-wrap" tabindex="0" role="region" aria-label="Отчёт по месяцам"><table>
           <thead><tr><th>Месяц</th><th class="num">Закупки</th><th class="num">Переплата</th><th class="hide-sm"><span class="sr-only">Доля месяца</span></th></tr></thead>
           <tbody>${d.by_month.map((m) => `<tr><td>${esc(monthName(m.month))}</td><td class="num">${money(m.spent)}</td><td class="num">${money(m.overpay)}</td>
             <td class="bar-cell hide-sm" aria-hidden="true"><span class="bar"><i style="width:${Math.round(m.spent / maxMonth * 100)}%"></i><b style="width:${Math.round(m.overpay / maxMonth * 100)}%"></b></span></td></tr>`).join("")}</tbody></table></div>
@@ -2039,7 +2039,7 @@
       <div class="page-head"><h1>Точки</h1>
         <p class="sub">Закупки и переплаты по каждой точке за 30 дней. Накладную относят к точке при загрузке.</p></div>
       <div class="card flush"><div class="toolbar"><h2 style="margin:0">Сравнение точек</h2></div>
-        <div class="table-wrap"><table>
+        <div class="table-wrap" tabindex="0" role="region" aria-label="Сравнение точек"><table>
           <thead><tr><th>Точка</th><th class="num hide-sm">Накладных</th><th class="num hide-sm">Закупки</th><th class="num">Переплата</th></tr></thead>
           <tbody>${d.locations.map((l) => `
             <tr data-id="${esc(l.location_id)}">
