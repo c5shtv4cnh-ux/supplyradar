@@ -12,6 +12,23 @@ built with Terraform, designed to run at **$0/month** at demo load.
 
 ![Price alert](docs/screenshots/03-alerts.png)
 
+## What the app does
+
+| Area | For | What it does |
+|---|---|---|
+| Invoices, products, alerts | business | Photo of an invoice -> Gemini -> checked numbers -> price history and alerts |
+| Business templates | business | After sign-up the owner picks cafe, restaurant, shop, bakery or other: sets the alert threshold and hints |
+| «Вернём переплату» | business | Monthly overpay report (30 days, previous period, last six months), what Pro would pay back, Excel export |
+| Claims to suppliers | business | One click from an alert or a contract violation: ready text with numbers and the invoice, status draft -> sent -> resolved with the refunded amount |
+| Contract prices | business | Price from the supplier contract plus tolerance; invoices above it are flagged and can be turned into a claim (3 on free, unlimited on Pro) |
+| Network of points | business | «Сеть» plan: up to 9 points, an invoice is assigned to a point on upload, per-point spend and overpay comparison |
+| First run | business | Sample data on first sign-in (can be switched off and removed any time), «Начало работы» card, empty states with the next step |
+| Suppliers and orders | both | A supplier signs up as «Я поставщик», keeps a catalog (CSV price list import) and gets orders; a business compares catalog prices with its own, then orders |
+| Recipes | business | Cost and margin of a dish from the latest invoice prices; 3 recipes on the free plan |
+| Plans and AI assistant | business, supplier | Free / Pro / «Сеть» / supplier Pro (demo payment, nothing is charged). Pro and «Сеть» unlock the Gemini assistant that answers from the owner's own data (30 questions a day) |
+| Admin panel | admin | Service-wide counts: accounts, suppliers, orders, plans, invoice statuses |
+| Telegram bot | | Not built yet: needs a bot token from @BotFather |
+
 ## Architecture
 
 ```mermaid
@@ -50,13 +67,15 @@ terraform/
 src/
   backend/                          Python 3.13 Lambda code (stdlib + boto3 only)
     api.py extract.py validate.py notify.py digest.py
-    supplyradar/                    shared: checks, pricing, products, gemini, db
+    supplyradar/                    shared: checks, pricing, products, gemini, db,
+                                    market (suppliers, orders, plans, assistant, savings, recipes),
+                                    growth (points, contract prices, claims, sample data)
   frontend/                         HTML + JS single-page app (Russian UI), no build step
 scripts/make_sample_invoices.py     synthetic invoices + ground truth
 samples/                            eval/ (12 invoices) and demo/ (4-step live demo)
-tests/unit/                         pytest (29 tests)
+tests/unit/                         pytest (58 tests)
 tests/eval/run_eval.py              Gemini field-accuracy test (Week 1 checkpoint, target >= 80 %)
-tests/e2e/                          local fake backend + Playwright browser test
+tests/e2e/                          local fake backend, Playwright browser test, axe accessibility test (CI job «ui»)
 docs/                               architecture, setup guide, cost, monitoring,
                                     troubleshooting, demo script, interview guide
 .github/workflows/ci.yml            tests, terraform validate/test, plan via OIDC
@@ -117,3 +136,4 @@ Cross-supplier matching worked: «СЛИВКИ 33% 0,5Л» and «Сливки 33
 | Terraform fmt / validate / offline plan | `make tf-test` | Terraform |
 | AI extraction accuracy | `GEMINI_API_KEY=… make eval` | Gemini key |
 | Browser test of the web app | `make local` then `node tests/e2e/ui.spec.mjs` | Node + Playwright |
+| Accessibility (WCAG 2.2 AA, axe) | after the browser test: `node tests/e2e/a11y.mjs` | + `axe-core` |

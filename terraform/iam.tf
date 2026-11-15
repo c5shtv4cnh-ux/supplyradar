@@ -9,8 +9,13 @@ locals {
 data "aws_iam_policy_document" "api" {
   statement {
     sid       = "Table"
-    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query"]
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan"] # Scan: admin overview, supplier directory
     resources = [module.database.table_arn]
+  }
+  statement {
+    sid       = "AssistantGeminiKey"
+    actions   = ["ssm:GetParameter"]
+    resources = [local.gemini_key_arn]
   }
   statement {
     sid       = "PresignUploadsAndDownloads"

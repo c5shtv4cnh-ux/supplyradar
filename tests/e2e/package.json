@@ -1,0 +1,13 @@
+{
+  "name": "supplyradar-ui-tests",
+  "private": true,
+  "type": "module",
+  "description": "Browser and accessibility tests against the local fake backend (see ci.yml, job ui)",
+  "scripts": {
+    "test": "node ui.spec.mjs && node a11y.mjs"
+  },
+  "devDependencies": {
+    "axe-core": "4.10.2",
+    "playwright": "1.63.0"
+  }
+}

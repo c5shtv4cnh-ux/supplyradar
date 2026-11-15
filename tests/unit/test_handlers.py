@@ -10,7 +10,7 @@ import digest
 import extract
 import notify
 import validate
-from supplyradar import gemini
+from supplyradar import config, gemini
 
 USER = "user-123"
 LAST_WEEK = (date.today() - timedelta(days=7)).isoformat()
@@ -18,12 +18,12 @@ LAST_MONTH = (date.today() - timedelta(days=30)).isoformat()
 BIN_A = "990140000017"
 
 
-def api_event(route, body=None, **path):
+def api_event(route, body=None, email="o@example.com", **path):
     return {
         "routeKey": route,
         "pathParameters": path or None,
         "body": json.dumps(body) if body is not None else None,
-        "requestContext": {"authorizer": {"jwt": {"claims": {"sub": USER, "email": "o@example.com"}}}},
+        "requestContext": {"authorizer": {"jwt": {"claims": {"sub": USER, "email": email, "email_verified": "true"}}}},
     }
 
 
@@ -201,3 +201,31 @@ def test_gemini_response_parsing_and_errors(monkeypatch):
     monkeypatch.setattr(gemini.urllib.request, "urlopen", rate_limited)
     with pytest.raises(gemini.GeminiRateLimited):
         gemini.extract_invoice(b"img", "image/jpeg")
+
+
+def test_business_profile_is_saved_by_partial_update(store, clients):
+    call("PUT /settings", {"threshold_pct": 8, "email": "owner@example.com"})
+    status, body = call("PUT /settings", {"business_type": "cafe", "business_name": "  Кофейня на Абая  "})
+    assert status == 200 and body["business_type"] == "cafe" and body["business_name"] == "Кофейня на Абая"
+    saved = call("GET /settings")[1]
+    assert saved["threshold_pct"] == 8 and saved["email"] == "owner@example.com"
+    assert saved["business_type"] == "cafe" and saved["is_admin"] is False
+    assert call("PUT /settings", {"business_type": "casino"})[0] == 400
+
+
+def test_admin_overview_is_for_admins_only(store, clients, monkeypatch):
+    upload(clients, store, monkeypatch)
+    assert call("GET /admin/overview")[0] == 403
+    monkeypatch.setattr(config, "ADMIN_EMAILS", {"boss@example.com"})
+    resp = api.handler(api_event("GET /admin/overview", email="Boss@Example.com"), None)
+    body = json.loads(resp["body"])
+    assert resp["statusCode"] == 200
+    assert body["invoices"] == 1 and body["accounts"] == 1 and body["latest"][0]["account"] == USER[-6:]
+    assert "email" not in json.dumps(body)
+
+
+def test_admin_needs_a_verified_email(store, clients, monkeypatch):
+    monkeypatch.setattr(config, "ADMIN_EMAILS", {"boss@example.com"})
+    event = api_event("GET /admin/overview", email="boss@example.com")
+    event["requestContext"]["authorizer"]["jwt"]["claims"]["email_verified"] = "false"
+    assert api.handler(event, None)["statusCode"] == 403

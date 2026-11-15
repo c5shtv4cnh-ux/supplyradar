@@ -3,7 +3,7 @@
 // Walks the demo: sign up, password reset, three invoices -> price alert,
 // a broken invoice -> review -> confirm, error and empty states, phone layout.
 import { chromium } from "playwright";
-import { mkdirSync } from "node:fs";
+import fs, { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,7 +14,8 @@ mkdirSync(shots, { recursive: true });
 const sample = (n) => path.join(root, "samples/demo", n);
 
 const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
-const page = await browser.newPage({ viewport: { width: 1280, height: 860 }, locale: "ru-RU" });
+// Reduced motion keeps screenshots deterministic: nothing is caught halfway through an entrance animation.
+const page = await browser.newPage({ viewport: { width: 1280, height: 860 }, locale: "ru-RU", reducedMotion: "reduce" });
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 // Expected 4xx responses (wrong password, unknown invoice) are logged by the browser; JS errors are not expected.
@@ -37,8 +38,21 @@ await page.waitForSelector("#password");
 await page.fill("#email", "owner@example.com");
 await page.fill("#password", "demo1234");
 await page.click("button[type=submit]");
-await page.waitForSelector("#drop");
+// A new account first picks its business template.
+await page.waitForSelector("#welcome");
 check(true, "sign up, confirm and sign in");
+check(!(await page.isVisible("#nav")), "welcome step hides the navigation until a template is chosen");
+await page.click("#welcome button[type=submit]");
+check((await page.textContent("#welcome-error")).includes("Выберите"), "welcome step asks to choose a business type");
+await page.check("input[name=business_type][value=cafe]");
+check((await page.textContent("#template-note")).includes("5%"), "template explains the alert threshold it sets");
+await page.fill("#business-name", "Кофейня на Абая");
+check(await page.isChecked("#load-demo"), "sample data is offered by default");
+await page.uncheck("#load-demo");
+await shot("10-welcome.png");
+await page.click("#welcome button[type=submit]");
+await page.waitForSelector("#drop");
+check((await page.textContent("#list")).includes("кофейное зерно"), "empty invoice list carries the template hint");
 check(await page.isVisible("text=Пока нет накладных"), "empty invoice list explains what to do");
 
 // Password reset, then sign in with the new password.
@@ -110,6 +124,30 @@ await page.click("#settings button[type=submit]");
 await page.waitForSelector("#toast:not([hidden])");
 await shot("07-settings.png");
 check(true, "settings saved");
+check(await page.inputValue("#business-type") === "cafe" && await page.inputValue("#business-name") === "Кофейня на Абая",
+  "settings keep the business template");
+
+// Excel export, coming-soon sections and the admin panel.
+await page.goto(base + "/#/invoices");
+await page.waitForSelector("#export");
+const [download] = await Promise.all([page.waitForEvent("download"), page.click("#export")]);
+const csv = fs.readFileSync(await download.path(), "utf8");
+check(csv.charCodeAt(0) === 0xfeff && csv.includes("Поставщик;Номер") && csv.split("\r\n").length === 5,
+  "invoices export to a CSV that Excel opens");
+await page.click("[data-nav=more]");
+await page.waitForSelector(".tiles");
+check((await page.$$(".tile .badge.soon")).length === 1 && await page.isVisible(".tile:has-text('Админ-панель')")
+  && await page.isVisible(".tile:has-text('Поставщики')") && await page.isVisible(".tile:has-text('Себестоимость')"),
+  "«Ещё» lists the working sections, Telegram marked as not ready, and the admin panel");
+await shot("11-more.png");
+await page.click(".tile:has-text('Telegram')");
+await page.waitForSelector(".soon-card");
+check((await page.textContent(".soon-card")).includes("В разработке"), "a coming section says it is not ready yet");
+await page.goto(base + "/#/admin");
+await page.waitForSelector(".facts.four");
+check((await page.textContent(".facts.four")).includes("Накладные") && (await page.$$("tbody tr")).length >= 4,
+  "admin panel shows service-wide numbers");
+await shot("12-admin.png");
 
 await page.goto(base + "/#/invoices");
 await page.waitForSelector("tr[data-id]");
@@ -123,7 +161,175 @@ await page.goto(base + "/#/invoices/deadbeef-0000");
 await page.waitForSelector(".error-state");
 check((await page.textContent(".error-state")).includes("не найдена"), "unknown invoice shows a not-found state");
 
-const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "ru-RU" });
+// Savings, recipes, plan and assistant (as the business owner).
+await page.goto(base + "/#/savings");
+await page.waitForSelector(".empty, .empty-state, .card");
+check(await page.isVisible("text=Пока нет закупок за этот период"), "savings page explains an empty period");
+// Sample data fills the app so the report, claims and contracts can be tried.
+const authed = (method, path, body) => page.evaluate(async ([m, p, b]) => {
+  const t = JSON.parse(localStorage.getItem("sr.session")).idToken;
+  const r = await fetch("/api" + p, { method: m, headers: { Authorization: "Bearer " + t, "Content-Type": "application/json" }, body: b ? JSON.stringify(b) : undefined });
+  return r.json();
+}, [method, path, body]);
+await authed("POST", "/demo");
+await page.goto(base + "/#/invoices");
+await page.reload();
+await page.waitForSelector(".demo-banner");
+check(true, "sample data shows a banner with a way to remove it");
+await page.goto(base + "/#/savings");
+await page.waitForSelector(".facts.four");
+check((await page.textContent(".facts.four")).includes("Переплата"), "savings dashboard shows the overpay numbers");
+await page.goto(base + "/#/recipes");
+await page.waitForSelector("#new-recipe");
+await page.click("#new-recipe");
+await page.fill("#r-name", "Латте");
+await page.fill("#r-portions", "2");
+await page.fill("#r-price", "1500");
+await page.fill("#ing-q-1", "2");
+check((await page.textContent("#recipe-sum")).includes("Себестоимость порции"), "recipe form previews the cost");
+await page.click("#recipe-form button[type=submit]");
+await page.waitForSelector(".recipe");
+check((await page.textContent(".recipe")).includes("Латте") && (await page.textContent(".recipe")).includes("Маржа"), "recipe saved with its cost and margin");
+await shot("13-recipes.png");
+await page.goto(base + "/#/assistant");
+await page.waitForSelector(".empty");
+check((await page.textContent(".empty")).includes("тариф Pro"), "assistant is offered on Pro only");
+await page.goto(base + "/#/subscription");
+await page.waitForSelector(".plans");
+await page.click("[data-plan=pro]");
+await page.waitForSelector("#demo-pay:not([hidden])");
+check((await page.textContent("#demo-pay")).includes("не списываются"), "payment says it is a demo");
+await shot("14-subscription.png");
+await page.click("#pay-go");
+await page.waitForSelector(".plan.current:has-text('Pro')");
+check(true, "demo payment switches the plan to Pro");
+await page.goto(base + "/#/assistant");
+await page.waitForSelector("#ask");
+await page.click("[data-q='Где я переплачиваю больше всего?']");
+await page.waitForSelector(".bubble.bot");
+check((await page.textContent(".bubble.bot")).includes("AI-помощника"), "assistant answers a question");
+await shot("15-assistant.png");
+
+// Report -> claim: contract price control, claim text, refund.
+await page.goto(base + "/#/savings");
+await page.waitForSelector(".payback");
+check((await page.textContent(".payback")).includes("Вернём переплату"), "savings report has the «Вернём переплату» card");
+check((await page.$$(".bar-cell")).length === 6, "monthly report lists the last six months");
+await shot("20-savings.png");
+await page.goto(base + "/#/contracts");
+await page.waitForSelector("#contract-form");
+await page.fill("#c-price", "1");
+await page.fill("#c-tol", "2");
+await page.click("#contract-form button[type=submit]");
+await page.waitForSelector(".contract .badge.bad");
+check(true, "a price above the contract is flagged");
+await shot("21-contracts.png");
+await page.click(".contract [data-claim]");
+await page.waitForSelector(".claim .claim-text");
+check((await page.textContent(".claim-text")).includes("₸"), "claim text carries the numbers");
+await shot("22-claims.png");
+await page.click(".claim [data-status=sent]");
+await page.waitForSelector(".claim [data-status=resolve]");
+await page.click(".claim [data-status=resolve]");
+await page.fill(".claim .refund input", "500");
+await page.click(".claim .refund button[type=submit]");
+await page.waitForSelector(".claim .badge.ok");
+check((await page.textContent(".claim")).includes("500"), "resolved claim shows the refunded amount");
+
+// «Сеть»: several points, upload point picker, per-point comparison.
+await page.goto(base + "/#/locations");
+await page.waitForSelector(".empty");
+check((await page.textContent(".empty")).includes("«Сеть»"), "points are offered on the Network plan");
+await page.goto(base + "/#/subscription");
+await page.waitForSelector("[data-plan=network]");
+await page.click("[data-plan=network]");
+await page.click("#pay-go");
+await page.waitForSelector(".plan.current:has-text('Сеть')");
+await page.goto(base + "/#/locations");
+await page.waitForSelector("#loc-form");
+await page.fill("#l-name", "Кофейня на Достык");
+await page.click("#loc-save");
+await page.waitForSelector("tr:has-text('Кофейня на Достык')");
+check(true, "a second point is added on the Network plan");
+await shot("23-locations.png");
+await page.goto(base + "/#/invoices");
+await page.waitForSelector("#upload-location");
+check((await page.$$eval("#upload-location option", (o) => o.length)) === 2, "upload form offers the points");
+
+// Sample data can be cleared again.
+await page.click("#clear-demo");
+await page.waitForSelector(".demo-banner", { state: "detached" });
+check(true, "sample data can be cleared");
+await authed("POST", "/demo"); // the accessibility run reuses this account with data in it
+
+// A supplier signs up on its own, fills the catalog and receives an order.
+async function signUp(pg, email, template, name) {
+  await pg.goto(base);
+  await pg.waitForSelector("#auth-form");
+  await pg.click("[data-mode=signup]");
+  await pg.fill("#email", email);
+  await pg.fill("#password", "demo1234");
+  await pg.click("button[type=submit]");
+  await pg.waitForSelector("#code");
+  await pg.fill("#code", "123456");
+  await pg.click("button[type=submit]");
+  await pg.waitForSelector("#password");
+  await pg.fill("#email", email);
+  await pg.fill("#password", "demo1234");
+  await pg.click("button[type=submit]");
+  await pg.waitForSelector("#welcome");
+  await pg.check(`input[name=business_type][value=${template}]`);
+  await pg.fill("#business-name", name);
+  if (await pg.locator("#load-demo").count()) await pg.uncheck("#load-demo");
+  await pg.click("#welcome button[type=submit]");
+}
+const supplier = await browser.newPage({ viewport: { width: 1280, height: 860 }, locale: "ru-RU", reducedMotion: "reduce" });
+await signUp(supplier, "supplier@example.com", "supplier", "ТОО Молочный двор");
+await supplier.waitForSelector("#item-form");
+check(!(await supplier.isVisible("[data-nav=invoices]")) && await supplier.isVisible("[data-nav=suppliers]"),
+  "a supplier sees the cabinet navigation, not the business one");
+await supplier.goto(base + "/#/invoices");
+await supplier.waitForSelector("#item-form");
+check(supplier.url().endsWith("#/suppliers"), "business pages send a supplier back to the catalog");
+await supplier.fill("#i-name", "Молоко 3,2% 1 л");
+await supplier.fill("#i-price", "380");
+await supplier.click("#item-save");
+await supplier.waitForSelector("tr[data-id]");
+await supplier.setInputFiles("#import", { name: "price.csv", mimeType: "text/csv",
+  buffer: Buffer.from("Название;Единица;Цена\r\nСыр голландский;кг;3000\r\nМасло 82%;шт;1200\r\n") });
+await supplier.waitForSelector("tr[data-id]:nth-child(3)");
+check((await supplier.$$("tr[data-id]")).length === 3, "catalog gets a new item and an imported CSV price list");
+await supplier.click("tr[data-id]:has-text('Масло') [data-stock]");
+await supplier.waitForSelector("tr[data-id]:has-text('Масло') .badge.bad");
+check(true, "a supplier can mark an item out of stock");
+await shot("16-catalog.png");
+
+await page.goto(base + "/#/suppliers");
+await page.waitForSelector("#sup-list a.tile");
+check((await page.textContent("#sup-list")).includes("ТОО Молочный двор"), "business sees the supplier in the directory");
+await page.click("#sup-list a.tile");
+await page.waitForSelector("#order-form");
+check((await page.textContent("#order-form")).includes("Ваша лучшая цена"), "catalog compares prices with the business's own best price");
+check(await page.isDisabled("input[aria-label^='Количество: Масло']"), "an out-of-stock item cannot be ordered");
+await page.fill("input[aria-label^='Количество: Молоко']", "5");
+await page.fill("#note", "К 8 утра");
+await shot("17-supplier-catalog.png");
+await page.click("#order-form button[type=submit]");
+await page.waitForSelector(".order");
+check((await page.textContent(".order")).includes("Новая"), "order is sent to the supplier");
+
+await supplier.goto(base + "/#/orders");
+await supplier.waitForSelector(".order");
+check((await supplier.textContent(".order")).includes("К 8 утра"), "the supplier receives the order with its note");
+await supplier.click("[data-status=accepted]");
+await supplier.waitForSelector(".order .badge:has-text('Принята')");
+await page.reload();
+await page.waitForSelector(".order .badge:has-text('Принята')");
+check(true, "the buyer sees the accepted status");
+await shot("18-orders.png");
+await supplier.close();
+
+const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "ru-RU", reducedMotion: "reduce" });
 await mobile.goto(base);
 await mobile.evaluate((s) => localStorage.setItem("sr.session", s), await page.evaluate(() => localStorage.getItem("sr.session")));
 await mobile.goto(base + "/#/invoices");

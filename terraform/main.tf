@@ -33,6 +33,36 @@ locals {
     "GET /alerts",
     "GET /settings",
     "PUT /settings",
+    "GET /admin/overview",
+    "GET /suppliers",
+    "GET /suppliers/{id}",
+    "GET /catalog",
+    "POST /catalog",
+    "PUT /catalog/{id}",
+    "DELETE /catalog/{id}",
+    "GET /orders",
+    "POST /orders",
+    "PUT /orders/{id}",
+    "GET /subscription",
+    "POST /subscription",
+    "POST /assistant",
+    "GET /savings",
+    "GET /recipes",
+    "POST /recipes",
+    "PUT /recipes/{id}",
+    "DELETE /recipes/{id}",
+    "GET /locations",
+    "POST /locations",
+    "PUT /locations/{id}",
+    "DELETE /locations/{id}",
+    "GET /contracts",
+    "PUT /contracts",
+    "DELETE /contracts/{id}",
+    "GET /claims",
+    "POST /claims",
+    "PUT /claims/{id}",
+    "POST /demo",
+    "DELETE /demo",
   ]
 
   common_env = {
@@ -46,6 +76,7 @@ locals {
     DEFAULT_THRESHOLD_PCT = tostring(var.alert_threshold_pct)
     MAX_RECEIVES          = tostring(local.max_receive_count)
     APP_URL               = module.frontend.url
+    ADMIN_EMAILS          = var.admin_emails != "" ? var.admin_emails : var.alarm_email
   }
 }
 
@@ -122,10 +153,10 @@ module "notifications" {
 module "api_fn" {
   source             = "./modules/lambda_function"
   name               = "${local.name}-api"
-  description        = "REST API: uploads, invoices, products, alerts, settings"
+  description        = "REST API: uploads, invoices, products, alerts, settings, suppliers, orders, plans, assistant, recipes"
   source_dir         = local.backend_dir
   handler            = "api.handler"
-  timeout            = 10
+  timeout            = 30 # the assistant waits for Gemini
   environment        = local.common_env
   policy_json        = data.aws_iam_policy_document.api.json
   log_retention_days = var.log_retention_days
