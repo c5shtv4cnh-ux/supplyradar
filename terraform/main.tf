@@ -23,6 +23,26 @@ locals {
 
   max_receive_count = 3
 
+  kms_key_arn = var.enable_kms ? module.kms[0].key_arn : null
+
+  # Browser allow-list for the web app. The API host is a wildcard on purpose:
+  # the exact API id is not known before the distribution exists (the API's
+  # CORS setting needs the CloudFront URL first).
+  uploads_bucket_name = "${local.name}-uploads-${local.account_id}"
+  uploads_origin      = "https://${local.uploads_bucket_name}.s3.${local.region}.amazonaws.com"
+  content_security_policy = join("; ", [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: ${local.uploads_origin}",
+    "font-src 'self'",
+    "connect-src 'self' https://*.execute-api.${local.region}.amazonaws.com https://cognito-idp.${local.region}.amazonaws.com ${local.uploads_origin}",
+    "form-action 'self' ${local.uploads_origin}",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "object-src 'none'",
+  ])
+
   api_routes = [
     "POST /uploads",
     "GET /invoices",
@@ -87,20 +107,45 @@ module "network" {
   name   = local.name
 }
 
+# ---------------------------------------------------------------- encryption, firewall (both optional, both cost money)
+
+module "kms" {
+  source = "./modules/kms"
+  count  = var.enable_kms ? 1 : 0
+  name   = local.name
+}
+
+module "waf" {
+  source     = "./modules/waf"
+  count      = var.enable_waf ? 1 : 0
+  name       = local.name
+  rate_limit = var.waf_rate_limit
+
+  providers = {
+    aws = aws.us_east_1
+  }
+}
+
 # ---------------------------------------------------------------- storage
 
 module "storage" {
-  source          = "./modules/storage"
-  bucket_name     = "${local.name}-uploads-${local.account_id}"
-  allowed_origins = local.allowed_origins
-  retention_days  = var.upload_retention_days
-  force_destroy   = !var.deletion_protection
+  source             = "./modules/storage"
+  bucket_name        = local.uploads_bucket_name
+  allowed_origins    = local.allowed_origins
+  retention_days     = var.upload_retention_days
+  ia_transition_days = var.upload_ia_transition_days
+  versioning         = var.upload_versioning
+  kms_key_arn        = local.kms_key_arn
+  force_destroy      = !var.deletion_protection
 }
 
 module "database" {
-  source              = "./modules/database"
-  table_name          = local.name
-  deletion_protection = var.deletion_protection
+  source                 = "./modules/database"
+  table_name             = local.name
+  billing_mode           = var.table_billing_mode
+  point_in_time_recovery = var.enable_point_in_time_recovery
+  kms_key_arn            = local.kms_key_arn
+  deletion_protection    = var.deletion_protection
 }
 
 # ---------------------------------------------------------------- queues
@@ -112,6 +157,7 @@ module "extract_queue" {
   max_receive_count          = local.max_receive_count
   allow_s3_source            = true
   s3_source_bucket_arn       = module.storage.bucket_arn
+  kms_key_id                 = local.kms_key_arn
 }
 
 module "validate_queue" {
@@ -119,6 +165,7 @@ module "validate_queue" {
   name                       = "${local.name}-validate"
   visibility_timeout_seconds = 180 # 6 x validate timeout
   max_receive_count          = local.max_receive_count
+  kms_key_id                 = local.kms_key_arn
 }
 
 resource "aws_s3_bucket_notification" "uploads" {
@@ -160,6 +207,7 @@ module "api_fn" {
   environment        = local.common_env
   policy_json        = data.aws_iam_policy_document.api.json
   log_retention_days = var.log_retention_days
+  tracing            = var.enable_xray
 }
 
 module "extract_fn" {
@@ -173,6 +221,7 @@ module "extract_fn" {
   environment        = local.common_env
   policy_json        = data.aws_iam_policy_document.extract.json
   log_retention_days = var.log_retention_days
+  tracing            = var.enable_xray
 }
 
 module "validate_fn" {
@@ -185,6 +234,7 @@ module "validate_fn" {
   environment        = local.common_env
   policy_json        = data.aws_iam_policy_document.validate.json
   log_retention_days = var.log_retention_days
+  tracing            = var.enable_xray
   vpc_config = {
     subnet_ids         = module.network.private_subnet_ids
     security_group_ids = [module.network.lambda_security_group_id]
@@ -201,6 +251,7 @@ module "notify_fn" {
   environment        = local.common_env
   policy_json        = data.aws_iam_policy_document.notify.json
   log_retention_days = var.log_retention_days
+  tracing            = var.enable_xray
 }
 
 module "digest_fn" {
@@ -213,6 +264,7 @@ module "digest_fn" {
   environment        = local.common_env
   policy_json        = data.aws_iam_policy_document.digest.json
   log_retention_days = var.log_retention_days
+  tracing            = var.enable_xray
 }
 
 # ---------------------------------------------------------------- triggers
@@ -268,6 +320,7 @@ module "http_api" {
   routes                 = local.api_routes
   throttling_rate_limit  = var.api_throttle_rate
   throttling_burst_limit = var.api_throttle_rate * 2
+  route_throttles        = var.api_route_throttles
   log_retention_days     = var.log_retention_days
 }
 
@@ -276,6 +329,11 @@ module "frontend" {
   bucket_name = "${local.name}-web-${local.account_id}"
   source_dir  = local.frontend_dir
   comment     = "${local.name} web app"
+  web_acl_arn = var.enable_waf ? module.waf[0].web_acl_arn : null
+  versioning  = var.web_versioning
+
+  content_security_policy = var.enable_csp ? local.content_security_policy : ""
+
   app_config = {
     apiUrl      = module.http_api.api_url
     region      = local.region
@@ -298,17 +356,35 @@ module "monitoring" {
     module.notify_fn.function_name,
     module.digest_fn.function_name,
   ]
-  queue_names      = [module.extract_queue.queue_name, module.validate_queue.queue_name]
-  dlq_names        = [module.extract_queue.dlq_name, module.validate_queue.dlq_name]
-  api_id           = module.http_api.api_id
-  table_name       = module.database.table_name
-  budget_limit_usd = var.budget_limit_usd
+  log_group_names = {
+    api      = module.api_fn.log_group_name
+    extract  = module.extract_fn.log_group_name
+    validate = module.validate_fn.log_group_name
+    notify   = module.notify_fn.log_group_name
+    digest   = module.digest_fn.log_group_name
+  }
+  queue_names        = [module.extract_queue.queue_name, module.validate_queue.queue_name]
+  dlq_names          = [module.extract_queue.dlq_name, module.validate_queue.dlq_name]
+  api_id             = module.http_api.api_id
+  api_log_group_name = module.http_api.access_log_group_name
+  table_name         = module.database.table_name
+  distribution_id    = module.frontend.distribution_id
+  web_acl_name       = var.enable_waf ? module.waf[0].web_acl_name : null
+  budget_limit_usd   = var.budget_limit_usd
 }
 
+# GitHub Actions roles. Created only when github_repository is set; the
+# workflows stay skipped until the owner saves the role ARNs in GitHub.
 module "ci" {
-  source            = "./modules/ci"
-  count             = var.github_repository == "" ? 0 : 1
-  name              = local.name
-  github_repository = var.github_repository
-  state_bucket      = var.state_bucket
+  source                   = "./modules/ci"
+  count                    = var.github_repository == "" ? 0 : 1
+  name                     = local.name
+  github_repository        = var.github_repository
+  github_environment       = var.environment
+  state_bucket             = var.state_bucket
+  state_key_prefix         = "${var.project}/${var.environment}"
+  protected_state_prefixes = [for e in ["dev", "prod"] : "${var.project}/${e}" if e != var.environment]
+  create_oidc_provider     = var.create_github_oidc_provider
+  create_deploy_role       = var.enable_github_deploy
+  uploads_bucket_arn       = module.storage.bucket_arn
 }

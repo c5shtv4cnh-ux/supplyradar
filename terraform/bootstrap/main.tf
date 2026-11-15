@@ -73,7 +73,38 @@ resource "aws_s3_bucket_lifecycle_configuration" "state" {
     noncurrent_version_expiration {
       noncurrent_days = 90
     }
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
   }
+}
+
+# The state can hold resource details, so it is never read over plain HTTP.
+data "aws_iam_policy_document" "state_tls_only" {
+  statement {
+    sid     = "DenyInsecureTransport"
+    effect  = "Deny"
+    actions = ["s3:*"]
+    resources = [
+      aws_s3_bucket.state.arn,
+      "${aws_s3_bucket.state.arn}/*",
+    ]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "state" {
+  bucket     = aws_s3_bucket.state.id
+  policy     = data.aws_iam_policy_document.state_tls_only.json
+  depends_on = [aws_s3_bucket_public_access_block.state]
 }
 
 output "state_bucket" {

@@ -4,6 +4,13 @@
 locals {
   uploads_objects = "${module.storage.bucket_arn}/uploads/*"
   sqs_consume     = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+
+  # With enable_kms the table, bucket and queues use the project key, so a
+  # function also needs the key itself: decrypt to read, data keys to write.
+  kms_keys    = local.kms_key_arn == null ? [] : [local.kms_key_arn]
+  kms_read    = ["kms:Decrypt"]
+  kms_write   = ["kms:Decrypt", "kms:GenerateDataKey"]
+  kms_via_env = ["dynamodb", "s3", "sqs"]
 }
 
 data "aws_iam_policy_document" "api" {
@@ -31,6 +38,20 @@ data "aws_iam_policy_document" "api" {
     sid       = "ManageEmailSubscriptions"
     actions   = ["sns:Subscribe", "sns:Unsubscribe", "sns:GetSubscriptionAttributes"]
     resources = [module.notifications.alerts_topic_arn, "${module.notifications.alerts_topic_arn}:*"]
+  }
+
+  dynamic "statement" {
+    for_each = local.kms_keys
+    content {
+      sid       = "ProjectKey"
+      actions   = local.kms_write
+      resources = [statement.value]
+      condition {
+        test     = "StringEquals"
+        variable = "kms:ViaService"
+        values   = [for s in local.kms_via_env : "${s}.${local.region}.amazonaws.com"]
+      }
+    }
   }
 }
 
@@ -60,6 +81,20 @@ data "aws_iam_policy_document" "extract" {
     actions   = ["dynamodb:GetItem", "dynamodb:PutItem"]
     resources = [module.database.table_arn]
   }
+
+  dynamic "statement" {
+    for_each = local.kms_keys
+    content {
+      sid       = "ProjectKey"
+      actions   = local.kms_write
+      resources = [statement.value]
+      condition {
+        test     = "StringEquals"
+        variable = "kms:ViaService"
+        values   = [for s in local.kms_via_env : "${s}.${local.region}.amazonaws.com"]
+      }
+    }
+  }
 }
 
 data "aws_iam_policy_document" "validate" {
@@ -72,6 +107,20 @@ data "aws_iam_policy_document" "validate" {
     sid       = "Table"
     actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query"]
     resources = [module.database.table_arn]
+  }
+
+  dynamic "statement" {
+    for_each = local.kms_keys
+    content {
+      sid       = "ProjectKey"
+      actions   = local.kms_write
+      resources = [statement.value]
+      condition {
+        test     = "StringEquals"
+        variable = "kms:ViaService"
+        values   = [for s in local.kms_via_env : "${s}.${local.region}.amazonaws.com"]
+      }
+    }
   }
 }
 
@@ -91,6 +140,20 @@ data "aws_iam_policy_document" "notify" {
     actions   = ["sns:Publish"]
     resources = [module.notifications.alerts_topic_arn]
   }
+
+  dynamic "statement" {
+    for_each = local.kms_keys
+    content {
+      sid       = "ProjectKey"
+      actions   = local.kms_read
+      resources = [statement.value]
+      condition {
+        test     = "StringEquals"
+        variable = "kms:ViaService"
+        values   = [for s in local.kms_via_env : "${s}.${local.region}.amazonaws.com"]
+      }
+    }
+  }
 }
 
 data "aws_iam_policy_document" "digest" {
@@ -108,5 +171,19 @@ data "aws_iam_policy_document" "digest" {
     sid       = "PublishDigest"
     actions   = ["sns:Publish"]
     resources = [module.notifications.alerts_topic_arn]
+  }
+
+  dynamic "statement" {
+    for_each = local.kms_keys
+    content {
+      sid       = "ProjectKey"
+      actions   = local.kms_read
+      resources = [statement.value]
+      condition {
+        test     = "StringEquals"
+        variable = "kms:ViaService"
+        values   = [for s in local.kms_via_env : "${s}.${local.region}.amazonaws.com"]
+      }
+    }
   }
 }

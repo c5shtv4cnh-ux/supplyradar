@@ -17,6 +17,20 @@ terraform {
   backend "s3" {}
 }
 
+# CloudFront-scoped WAF web ACLs can only be created in us-east-1.
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+
+  default_tags {
+    tags = {
+      Project     = var.project
+      Environment = var.environment
+      ManagedBy   = "terraform"
+    }
+  }
+}
+
 provider "aws" {
   region = var.region
 

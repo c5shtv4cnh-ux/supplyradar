@@ -5,6 +5,10 @@
 *.tfplan
 terraform/.build/
 terraform/envs/*.backend.hcl
+terraform/*.auto.tfvars
+terraform/plan.json
+terraform/plan.txt
+terraform/tfplan
 !terraform/envs/*.backend.hcl.example
 .terraform.lock.hcl.bak
 crash.log
@@ -28,3 +32,6 @@ eval-report*.json
 
 # UI tests
 tests/e2e/node_modules/
+
+# Load test output
+load-results/

@@ -56,3 +56,9 @@ variable "log_retention_days" {
   type    = number
   default = 7
 }
+
+variable "tracing" {
+  description = "Send X-Ray traces for every sampled invocation (Active tracing)."
+  type        = bool
+  default     = false
+}

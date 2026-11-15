@@ -3,3 +3,4 @@
 boto3
 pytest
 pillow
+matplotlib  # chart of the load test (tests/load)

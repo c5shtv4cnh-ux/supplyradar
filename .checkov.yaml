@@ -1,0 +1,39 @@
+# Static security scan of the Terraform code: `make security` and the CI job.
+# Every skipped check is a decision, with its reason. Most are about cost:
+# the project must stay near the AWS free tier (docs/security.md).
+directory:
+  - terraform
+framework:
+  - terraform
+download-external-modules: false
+quiet: true
+compact: true
+skip-check:
+  # --- costs money every month; the free default already covers the risk
+  - CKV_AWS_158  # log groups use CloudWatch's own encryption; a KMS key per group adds cost
+  - CKV_AWS_173  # Lambda env vars hold names and URLs, never secrets (the Gemini key is in SSM)
+  - CKV_AWS_145  # web and state buckets use SSE-S3; the uploads bucket takes the KMS key with enable_kms
+  - CKV_AWS_26   # ops topic carries alarm names only; CloudWatch cannot publish to a topic on the aws/sns key
+  - CKV_AWS_297  # the schedule carries no payload worth a customer-managed key
+  - CKV2_AWS_11  # VPC flow logs: the VPC has no internet route and one function; logs would cost ingestion
+  - CKV2_AWS_31  # WAF logging needs a Firehose or log group; sampled requests and metrics are on
+  - CKV_AWS_18   # S3 access logs: object-level activity is not needed at this size
+  - CKV_AWS_86   # CloudFront access logs: same; request metrics are on the dashboard
+  - CKV_AWS_144  # cross-region replication: point-in-time recovery and versioning cover the data
+  - CKV_AWS_310  # origin failover needs a second bucket in another region
+  - CKV2_AWS_16  # autoscaling: 5/5 provisioned is the free tier; growth switches to on-demand
+  # --- not possible or not applicable in this design
+  - CKV_AWS_174  # TLS 1.2 minimum needs a custom domain and certificate; the default cloudfront.net certificate fixes the policy
+  - CKV2_AWS_42  # same: no custom domain
+  - CKV_AWS_374  # no geo restriction: owners may travel
+  - CKV2_AWS_47  # AWSManagedRulesKnownBadInputsRuleSet (Log4j) is in the web ACL; the scanner cannot read dynamic blocks
+  - CKV_AWS_192  # same
+  - CKV_AWS_116  # functions are fed by SQS (with dead-letter queues) and Streams (retries + bisect), not async invokes
+  - CKV_AWS_115  # reserved concurrency cannot be set in a new account (limit 10); extract is capped at 2 by its event source
+  - CKV_AWS_272  # code signing: packages are built by Terraform from this repository
+  - CKV2_AWS_62  # event notifications are needed only on the uploads bucket, which has them
+  - CKV2_AWS_5   # false positive: the security group is attached to the validate function in the root module
+  - CKV_AWS_394  # two subnets are taken from the first two zones on purpose
+  - CKV_AWS_356  # KMS key policy (account root, by design) and IAM actions that have no resource-level form
+  - CKV_AWS_111  # same: the key policy delegates to IAM
+  - CKV_AWS_109  # same

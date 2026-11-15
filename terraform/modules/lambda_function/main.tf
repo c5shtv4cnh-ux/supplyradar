@@ -47,6 +47,21 @@ resource "aws_iam_role_policy" "custom" {
   policy = var.policy_json
 }
 
+# X-Ray: the function may only send trace segments (no read access to traces).
+resource "aws_iam_role_policy" "xray" {
+  count = var.tracing ? 1 : 0
+  name  = "xray"
+  role  = aws_iam_role.this.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["xray:PutTraceSegments", "xray:PutTelemetryRecords"]
+      Resource = "*" # X-Ray write actions do not support resource-level permissions
+    }]
+  })
+}
+
 # ENI management for functions placed in the VPC.
 resource "aws_iam_role_policy_attachment" "vpc" {
   count      = var.vpc_config == null ? 0 : 1
@@ -78,6 +93,10 @@ resource "aws_lambda_function" "this" {
     }
   }
 
+  tracing_config {
+    mode = var.tracing ? "Active" : "PassThrough"
+  }
+
   logging_config {
     log_format = "Text"
     log_group  = aws_cloudwatch_log_group.this.name
@@ -86,6 +105,7 @@ resource "aws_lambda_function" "this" {
   depends_on = [
     aws_iam_role_policy.logs,
     aws_iam_role_policy.custom,
+    aws_iam_role_policy.xray,
     aws_iam_role_policy_attachment.vpc,
   ]
 }

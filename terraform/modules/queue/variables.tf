@@ -25,3 +25,9 @@ variable "s3_source_bucket_arn" {
   type        = string
   default     = null
 }
+
+variable "kms_key_id" {
+  description = "Customer-managed KMS key for both queues (null = SSE-SQS managed keys)."
+  type        = string
+  default     = null
+}
