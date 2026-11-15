@@ -22,6 +22,14 @@ Matches slide 14 of the presentation. Rehearse twice; record a backup video the 
 | **6:00–8:00** Architecture, console, Terraform | Architecture slide; AWS console: Lambda list, SQS queues + DLQs, DynamoDB items, CloudWatch dashboard. Terminal: `terraform plan -var-file=envs/dev.tfvars` → *No changes*. Show `modules/` tree. | Everything is one `terraform apply`: 11 modules, remote state in S3 with native locking, dev and prod from the same code with different tfvars. The validate function runs in a private VPC with free gateway endpoints and no NAT gateway; one IAM role per function; the Gemini key sits in SSM and never in state. CI runs tests, validate and an offline plan test on every PR, and a real plan via GitHub OIDC. |
 | **8:00–10:00** Digest, cost, Q&A | Terminal: `aws lambda invoke --function-name supplyradar-dev-digest out.json` → show the digest email. Cost slide + AWS Budgets page. | Every Monday EventBridge Scheduler triggers a Gemini-written summary of where you overpaid. Expected cost $0/month at demo load, with a $1 budget alarm; the biggest saving is not using a NAT gateway. |
 
+## Optional: «Вернём переплату» (2 minutes, if time allows)
+
+Sign in with an account that has sample data (the welcome step offers it). Open *Ещё → Переплаты*: the report shows what
+was overpaid in 30 days against the best price of the owner's own suppliers and what Pro would pay back. From *Алерты*
+press **Претензия поставщику**: the text with numbers and invoice number is ready to copy or open in the mail client;
+mark it sent and resolved with the refunded amount. *Контрактные цены* flags an invoice above the contract price.
+Payment is a demo: nothing is charged.
+
 ## Likely questions
 
 **Why is the extract function outside the VPC?** It must reach the Gemini API on the internet. Inside a

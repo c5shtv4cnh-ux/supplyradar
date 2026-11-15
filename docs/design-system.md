@@ -54,9 +54,10 @@ Also honoured: `prefers-color-scheme`, `prefers-contrast: more`, forced-colours 
 
 ```bash
 python3 tests/e2e/fake_backend.py &
-node tests/e2e/ui.spec.mjs        # behaviour + screenshots
-npm i --no-save axe-core && node tests/e2e/a11y.mjs   # axe on every screen, both themes, 320 px
+cd tests/e2e && npm install && npm test   # behaviour + screenshots, then axe on every screen, both themes, 320 px
 ```
+
+The same run is the CI job «UI and accessibility tests».
 
 axe cannot judge text over gradients, so the landing hero colours were checked by hand: the worst case
 (secondary text over the brightest part of the coral light) is about 4.8:1; the headline is about 5.9:1.

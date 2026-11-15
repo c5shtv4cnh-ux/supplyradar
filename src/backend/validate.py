@@ -126,6 +126,7 @@ def record_prices(store, pk, inv):
             "supplier": inv.get("supplier_name"),
             "supplier_key": inv["supplier_key"],
             "invoice_id": inv["invoice_id"],
+            "location_id": inv.get("location_id"),
         })
 
         product = store.get(pk, f"PROD#{key}")

@@ -51,6 +51,18 @@ locals {
     "POST /recipes",
     "PUT /recipes/{id}",
     "DELETE /recipes/{id}",
+    "GET /locations",
+    "POST /locations",
+    "PUT /locations/{id}",
+    "DELETE /locations/{id}",
+    "GET /contracts",
+    "PUT /contracts",
+    "DELETE /contracts/{id}",
+    "GET /claims",
+    "POST /claims",
+    "PUT /claims/{id}",
+    "POST /demo",
+    "DELETE /demo",
   ]
 
   common_env = {

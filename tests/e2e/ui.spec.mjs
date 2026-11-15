@@ -47,6 +47,8 @@ check((await page.textContent("#welcome-error")).includes("Выберите"), "
 await page.check("input[name=business_type][value=cafe]");
 check((await page.textContent("#template-note")).includes("5%"), "template explains the alert threshold it sets");
 await page.fill("#business-name", "Кофейня на Абая");
+check(await page.isChecked("#load-demo"), "sample data is offered by default");
+await page.uncheck("#load-demo");
 await shot("10-welcome.png");
 await page.click("#welcome button[type=submit]");
 await page.waitForSelector("#drop");
@@ -161,6 +163,20 @@ check((await page.textContent(".error-state")).includes("не найдена"), 
 
 // Savings, recipes, plan and assistant (as the business owner).
 await page.goto(base + "/#/savings");
+await page.waitForSelector(".empty, .empty-state, .card");
+check(await page.isVisible("text=Пока нет закупок за этот период"), "savings page explains an empty period");
+// Sample data fills the app so the report, claims and contracts can be tried.
+const authed = (method, path, body) => page.evaluate(async ([m, p, b]) => {
+  const t = JSON.parse(localStorage.getItem("sr.session")).idToken;
+  const r = await fetch("/api" + p, { method: m, headers: { Authorization: "Bearer " + t, "Content-Type": "application/json" }, body: b ? JSON.stringify(b) : undefined });
+  return r.json();
+}, [method, path, body]);
+await authed("POST", "/demo");
+await page.goto(base + "/#/invoices");
+await page.reload();
+await page.waitForSelector(".demo-banner");
+check(true, "sample data shows a banner with a way to remove it");
+await page.goto(base + "/#/savings");
 await page.waitForSelector(".facts.four");
 check((await page.textContent(".facts.four")).includes("Переплата"), "savings dashboard shows the overpay numbers");
 await page.goto(base + "/#/recipes");
@@ -194,6 +210,58 @@ await page.waitForSelector(".bubble.bot");
 check((await page.textContent(".bubble.bot")).includes("AI-помощника"), "assistant answers a question");
 await shot("15-assistant.png");
 
+// Report -> claim: contract price control, claim text, refund.
+await page.goto(base + "/#/savings");
+await page.waitForSelector(".payback");
+check((await page.textContent(".payback")).includes("Вернём переплату"), "savings report has the «Вернём переплату» card");
+check((await page.$$(".bar-cell")).length === 6, "monthly report lists the last six months");
+await shot("20-savings.png");
+await page.goto(base + "/#/contracts");
+await page.waitForSelector("#contract-form");
+await page.fill("#c-price", "1");
+await page.fill("#c-tol", "2");
+await page.click("#contract-form button[type=submit]");
+await page.waitForSelector(".contract .badge.bad");
+check(true, "a price above the contract is flagged");
+await shot("21-contracts.png");
+await page.click(".contract [data-claim]");
+await page.waitForSelector(".claim .claim-text");
+check((await page.textContent(".claim-text")).includes("₸"), "claim text carries the numbers");
+await shot("22-claims.png");
+await page.click(".claim [data-status=sent]");
+await page.waitForSelector(".claim [data-status=resolve]");
+await page.click(".claim [data-status=resolve]");
+await page.fill(".claim .refund input", "500");
+await page.click(".claim .refund button[type=submit]");
+await page.waitForSelector(".claim .badge.ok");
+check((await page.textContent(".claim")).includes("500"), "resolved claim shows the refunded amount");
+
+// «Сеть»: several points, upload point picker, per-point comparison.
+await page.goto(base + "/#/locations");
+await page.waitForSelector(".empty");
+check((await page.textContent(".empty")).includes("«Сеть»"), "points are offered on the Network plan");
+await page.goto(base + "/#/subscription");
+await page.waitForSelector("[data-plan=network]");
+await page.click("[data-plan=network]");
+await page.click("#pay-go");
+await page.waitForSelector(".plan.current:has-text('Сеть')");
+await page.goto(base + "/#/locations");
+await page.waitForSelector("#loc-form");
+await page.fill("#l-name", "Кофейня на Достык");
+await page.click("#loc-save");
+await page.waitForSelector("tr:has-text('Кофейня на Достык')");
+check(true, "a second point is added on the Network plan");
+await shot("23-locations.png");
+await page.goto(base + "/#/invoices");
+await page.waitForSelector("#upload-location");
+check((await page.$$eval("#upload-location option", (o) => o.length)) === 2, "upload form offers the points");
+
+// Sample data can be cleared again.
+await page.click("#clear-demo");
+await page.waitForSelector(".demo-banner", { state: "detached" });
+check(true, "sample data can be cleared");
+await authed("POST", "/demo"); // the accessibility run reuses this account with data in it
+
 // A supplier signs up on its own, fills the catalog and receives an order.
 async function signUp(pg, email, template, name) {
   await pg.goto(base);
@@ -212,6 +280,7 @@ async function signUp(pg, email, template, name) {
   await pg.waitForSelector("#welcome");
   await pg.check(`input[name=business_type][value=${template}]`);
   await pg.fill("#business-name", name);
+  if (await pg.locator("#load-demo").count()) await pg.uncheck("#load-demo");
   await pg.click("#welcome button[type=submit]");
 }
 const supplier = await browser.newPage({ viewport: { width: 1280, height: 860 }, locale: "ru-RU", reducedMotion: "reduce" });

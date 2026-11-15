@@ -11,6 +11,7 @@ const base = process.env.BASE_URL || "http://localhost:8765";
 const axeSource = readFileSync(process.env.AXE || createRequire(import.meta.url).resolve("axe-core/axe.min.js"), "utf8");
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});
+let newcomers = 0;
 let failures = 0;
 let session = null;
 let newcomer = null;
@@ -104,34 +105,35 @@ for (const [label, options] of [
   await visit("/recipes", ".recipe", "recipes");
   await page.click("#new-recipe");
   await audit(page, `${label}: recipe form`);
+  await visit("/claims", "h1", "claims");
+  await visit("/contracts", "h1", "contract prices");
+  await visit("/locations", "h1", "locations");
   await visit("/invoices/deadbeef-0000", ".error-state", "not found");
   // The welcome step, as a second account that has not chosen a template yet.
-  if (!newcomer) {
+  {
+    const email = `newcomer-${++newcomers}@example.com`;
     await page.evaluate(() => localStorage.removeItem("sr.session"));
     await page.goto(base + "/#/login");
     await page.reload();
     await page.waitForSelector("#auth-form");
     await page.click("[data-mode=signup]");
-    await page.fill("#email", "newcomer@example.com");
+    await page.fill("#email", email);
     await page.fill("#password", "demo1234");
     await page.click("button[type=submit]");
     await page.waitForSelector("#code");
     await page.fill("#code", "123456");
     await page.click("button[type=submit]");
     await page.waitForSelector("#password");
-    await page.fill("#email", "newcomer@example.com");
+    await page.fill("#email", email);
     await page.fill("#password", "demo1234");
     await page.click("button[type=submit]");
-    await page.waitForSelector("#welcome");
-    newcomer = await page.evaluate(() => localStorage.getItem("sr.session"));
-  } else {
-    await page.evaluate((s) => localStorage.setItem("sr.session", s), newcomer);
-    await page.goto(base + "/#/welcome");
-    await page.reload();
     await page.waitForSelector("#welcome");
   }
   await page.check("input[name=business_type][value=shop]");
   await audit(page, `${label}: welcome`);
+  await page.click("#welcome button[type=submit]");
+  await page.waitForSelector(".start");
+  await audit(page, `${label}: invoices with sample data and start card`);
   await page.close();
 }
 

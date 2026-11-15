@@ -131,7 +131,7 @@ def test_order_rejects_unavailable_items(store, clients):
 def test_subscription_is_a_demo_payment(store, clients):
     setup_accounts(store)
     status, view = call(SHOP, "GET /subscription")
-    assert status == 200 and view["plan"] == "free" and {p["id"] for p in view["plans"]} == {"free", "pro"}
+    assert status == 200 and view["plan"] == "free" and {p["id"] for p in view["plans"]} == {"free", "pro", "network"}
     assert call(SHOP, "POST /subscription", {"plan": "pro"})[0] == 400  # must be marked as demo
     assert call(SHOP, "POST /subscription", {"plan": "supplier_pro", "demo": True})[0] == 400  # wrong role
     status, view = call(SHOP, "POST /subscription", {"plan": "pro", "demo": True})

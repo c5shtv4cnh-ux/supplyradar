@@ -7,6 +7,9 @@ Every item belongs to one user (PK = USER#<cognito sub>). Sort keys:
     ORDER#<order_id>                         order to a supplier (a copy sits with the buyer and the supplier)
     RECIPE#<recipe_id>                       dish with its ingredients (cost is computed from PROD# prices)
     PAY#<time>                               demo payment record
+    LOC#<location_id>                        extra point of a network account (invoices are tagged with it)
+    CONTRACT#<id>                            agreed price of a product at a supplier, with a tolerance
+    CLAIM#<time>-<id>                        drafted claim to a supplier about a price
     USAGE#<date>                             assistant questions asked that day
     INV#<invoice_id>                         invoice: status, fields, lines, issues
     DUP#<supplier_key>#<invoice_number>      first invoice seen with that number

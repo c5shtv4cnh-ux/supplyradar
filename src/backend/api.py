@@ -11,8 +11,8 @@ Routes (all require a valid Cognito ID token):
     GET  /settings                alert threshold, email, business profile, is_admin
     PUT  /settings                change threshold / email (subscribes email to SNS) / business profile
     GET  /admin/overview          service-wide numbers, admin accounts only
-    ...and the routes in supplyradar/market.py: suppliers, catalog, orders, subscription,
-    assistant, savings, recipes.
+    ...and the routes in supplyradar/market.py (suppliers, catalog, orders, subscription,
+    assistant, savings, recipes) and supplyradar/growth.py (locations, contracts, claims, demo data).
 """
 import json
 import logging
@@ -21,7 +21,7 @@ import urllib.parse
 import uuid
 from datetime import datetime, timezone
 
-from supplyradar import aws, config, db, market
+from supplyradar import aws, config, db, growth, market
 from supplyradar.common import ApiError, now_iso, num as _num  # noqa: F401
 
 log = logging.getLogger()
@@ -96,6 +96,7 @@ def create_upload(user, params, body):
         "file_key": key,
         "content_type": content_type,
         "file_name": str(body.get("file_name") or "")[:200],
+        "location_id": growth.location_known(db.user_pk(user["id"]), body.get("location_id")),
         "created_at": created,
     })
     post = aws.client("s3").generate_presigned_post(
@@ -109,7 +110,7 @@ def create_upload(user, params, body):
 
 
 SUMMARY_FIELDS = ("invoice_id", "status", "supplier_name", "invoice_number", "invoice_date",
-                  "total", "currency", "created_at", "file_name")
+                  "total", "currency", "created_at", "file_name", "location_id", "demo")
 
 
 def list_invoices(user, params, body):
@@ -134,7 +135,8 @@ def get_invoice(user, params, body):
     item = _get_invoice(user, params.get("id"))
     item.pop("PK", None)
     item.pop("SK", None)
-    item["file_url"] = aws.client("s3").generate_presigned_url(
+    # Demo invoices have no scan behind them.
+    item["file_url"] = None if item.get("demo") or not item.get("file_key") else aws.client("s3").generate_presigned_url(
         "get_object", Params={"Bucket": config.UPLOAD_BUCKET, "Key": item["file_key"]}, ExpiresIn=600,
     )
     return item
@@ -347,4 +349,5 @@ ROUTES = {
     "PUT /settings": put_settings,
     "GET /admin/overview": admin_overview,
     **market.ROUTES,
+    **growth.ROUTES,
 }

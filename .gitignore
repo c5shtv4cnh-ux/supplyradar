@@ -25,3 +25,6 @@ node_modules/
 .env
 *.pem
 eval-report*.json
+
+# UI tests
+tests/e2e/node_modules/

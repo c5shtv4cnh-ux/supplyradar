@@ -19,10 +19,11 @@ log = logging.getLogger()
 PLANS = {
     "free": {"name": "Бесплатный", "price": 0, "for": ("business", "supplier")},
     "pro": {"name": "Pro", "price": 4990, "for": ("business",)},
+    "network": {"name": "Сеть", "price": 14990, "for": ("business",)},
     "supplier_pro": {"name": "Поставщик Pro", "price": 9990, "for": ("supplier",)},
 }
 PLAN_DAYS = 30
-ASSISTANT_PLANS = ("pro",)
+ASSISTANT_PLANS = ("pro", "network")  # Pro features; «Сеть» adds several locations
 ASSISTANT_DAILY_LIMIT = 30
 CATALOG_LIMIT = {"free": 20, "supplier_pro": 200}
 RECIPE_LIMIT_FREE = 3
@@ -338,11 +339,25 @@ def subscribe(user, params, body):
 
 # ---------- savings ----------
 
-def compute_savings(pk, days=30):
-    """What the owner paid in the last `days` days above the best current price among their suppliers."""
+def _month_keys(today, count=6):
+    keys = []
+    for back in range(count - 1, -1, -1):
+        index = today.year * 12 + today.month - 1 - back
+        keys.append(f"{index // 12:04d}-{index % 12 + 1:02d}")
+    return keys
+
+
+def compute_savings(pk, days=30, location=None, known=None):
+    """What the owner paid in the last `days` days above the best current price among their suppliers.
+
+    location: None for every point, "main" or a location id to look at one point (deliveries without a
+    tag, or tagged with a point that no longer exists, belong to "main"). Also returns the previous
+    period for the trend and the last six calendar months.
+    """
     store = db.store()
     today = datetime.now(timezone.utc).date()
     since = (today - timedelta(days=days)).isoformat()
+    prev_since = (today - timedelta(days=2 * days)).isoformat()
     fresh = (today - timedelta(days=90)).isoformat()
     products = {p["product_key"]: p for p in store.query_prefix(pk, "PROD#")}
     best = {}
@@ -351,31 +366,46 @@ def compute_savings(pk, days=30):
                   if s.get("price") and str(s.get("date") or "") >= fresh]
         if offers:
             best[key] = min(offers)
-    spent = overpay = 0.0
+    months = {m: {"month": m, "spent": 0.0, "overpay": 0.0} for m in _month_keys(today)}
+    spent = overpay = prev_overpay = 0.0
     items, by_supplier = {}, {}
     for row in store.query_prefix(pk, "PRICE#"):
-        if str(row.get("date") or "") < since or not row.get("price"):
+        day = str(row.get("date") or "")
+        if not day or not row.get("price"):
+            continue
+        if location is not None and (row.get("location_id") if row.get("location_id") in (known or ()) else "main") != location:
             continue
         qty = row.get("quantity") or 1
         paid = row["price"] * qty
+        top = best.get(row["product_key"])
+        extra = (row["price"] - top[0]) * qty if top and row["price"] > top[0] + 0.005 else 0.0
+        if day[:7] in months:
+            months[day[:7]]["spent"] += paid
+            months[day[:7]]["overpay"] += extra
+        if day < since:
+            if day >= prev_since:
+                prev_overpay += extra
+            continue
         spent += paid
         entry = items.setdefault(row["product_key"], {
             "product_key": row["product_key"], "name": (products.get(row["product_key"]) or {}).get("name")
             or row["product_key"], "unit": row.get("unit"), "qty": 0, "spent": 0.0, "overpay": 0.0})
         entry["qty"] += qty
         entry["spent"] += paid
-        top = best.get(row["product_key"])
-        if top and row["price"] > top[0] + 0.005:
-            extra = (row["price"] - top[0]) * qty
+        if extra:
             overpay += extra
             entry["overpay"] += extra
             entry["best_price"], entry["best_supplier"] = top
             name = row.get("supplier") or "Без названия"
             by_supplier[name] = by_supplier.get(name, 0) + extra
-    growth = 0.0
-    for a in store.query_prefix(pk, "ALERT#", newest_first=True, limit=200):
-        if str(a.get("invoice_date") or "") >= since:
-            growth += (a["new_price"] - a["old_price"]) * (a.get("quantity") or 1)
+    growth = refunded = 0.0
+    if location is None:
+        for a in store.query_prefix(pk, "ALERT#", newest_first=True, limit=200):
+            if str(a.get("invoice_date") or "") >= since:
+                growth += (a["new_price"] - a["old_price"]) * (a.get("quantity") or 1)
+        for c in store.query_prefix(pk, "CLAIM#"):
+            if c.get("status") == "resolved" and str(c.get("updated_at") or "")[:10] >= since:
+                refunded += c.get("refund") or 0
     rows = sorted((e for e in items.values() if e["overpay"] > 0), key=lambda e: e["overpay"], reverse=True)
     for e in rows:
         e["paid_avg"] = round(e["spent"] / e["qty"], 2) if e["qty"] else None
@@ -383,16 +413,30 @@ def compute_savings(pk, days=30):
     return {
         "period_days": days, "spent": round(spent), "overpay": round(overpay),
         "overpay_pct": round(overpay / spent * 100, 1) if spent else 0,
-        "price_growth": round(growth),
+        "previous_overpay": round(prev_overpay),
+        "price_growth": round(growth), "refunded": round(refunded),
         "items": rows[:20],
         "by_supplier": sorted(({"supplier": k, "overpay": round(v)} for k, v in by_supplier.items()),
                               key=lambda r: r["overpay"], reverse=True),
+        "by_month": [{"month": m["month"], "spent": round(m["spent"]), "overpay": round(m["overpay"])}
+                     for m in months.values()],
     }
 
 
 def get_savings(user, params, body):
-    _require_business(user)
-    return compute_savings(db.user_pk(user["id"]))
+    profile = _require_business(user)
+    pk = db.user_pk(user["id"])
+    known = {l["location_id"] for l in store_locations(pk)}
+    data = compute_savings(pk, 30, None, known)
+    # «Вернём переплату»: does the plan pay for itself if the owner wins back a third of the overpay?
+    price = PLANS["pro"]["price"]
+    data["payback"] = {"pro_price": price, "recoverable": round(data["overpay"] / 3),
+                       "pays_back": data["overpay"] / 3 >= price, "plan": plan_of(profile)}
+    return data
+
+
+def store_locations(pk):
+    return db.store().query_prefix(pk, "LOC#")
 
 
 # ---------- assistant ----------

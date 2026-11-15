@@ -328,14 +328,17 @@
     [/^#\/subscription$/, renderSubscription, true, "Подписка"],
     [/^#\/assistant$/, renderAssistant, true, "AI-помощник"],
     [/^#\/savings$/, renderSavings, true, "Переплаты"],
+    [/^#\/claims$/, renderClaims, true, "Претензии"],
+    [/^#\/contracts$/, renderContracts, true, "Контрактные цены"],
+    [/^#\/locations$/, renderLocations, true, "Точки"],
     [/^#\/recipes$/, renderRecipes, true, "Себестоимость блюд"],
     [/^#\/(telegram)$/, renderSoon, true, "Скоро"],
     [/^#\/admin$/, renderAdmin, true, "Админ-панель"],
   ];
   // Pages that live under the «Ещё» tab.
-  const MORE_SECTIONS = ["more", "suppliers", "orders", "subscription", "assistant", "savings", "recipes", "telegram", "admin"];
+  const MORE_SECTIONS = ["more", "suppliers", "orders", "subscription", "assistant", "savings", "claims", "contracts", "locations", "recipes", "telegram", "admin"];
   // Pages that only make sense for a business: a supplier account is sent to its catalog instead.
-  const BUSINESS_ONLY = ["invoices", "products", "alerts", "savings", "recipes", "assistant", "more", "admin"];
+  const BUSINESS_ONLY = ["invoices", "products", "alerts", "savings", "claims", "contracts", "locations", "recipes", "assistant", "more", "admin"];
   let renderId = 0;
   let currentHash = null;
   // A page with unsaved edits sets this; the router asks before leaving it.
@@ -685,7 +688,8 @@
     onStep("prepare");
     const { blob, type } = await prepareFile(file);
     if (blob.size > 10 * 1024 * 1024) throw new Error("После сжатия файл больше 10 МБ. Для PDF уберите лишние страницы.");
-    const { invoice_id: id, upload } = await api("POST", "/uploads", { content_type: type, file_name: file.name });
+    const location_id = (document.getElementById("upload-location") || {}).value || undefined;
+    const { invoice_id: id, upload } = await api("POST", "/uploads", { content_type: type, file_name: file.name, location_id });
     onStep("upload");
     const form = new FormData();
     Object.entries(upload.fields).forEach(([k, v]) => form.append(k, v));
@@ -738,9 +742,25 @@
     const data = await api("GET", "/invoices");
     if (!alive()) return;
     const invoices = data.invoices || [];
+    const locations = isNetwork() ? (await api("GET", "/locations").catch(() => ({ locations: [] }))).locations : [];
+    const locName = Object.fromEntries(locations.map((l) => [l.location_id, l.name]));
+    const real = invoices.filter((i) => !i.demo);
+    const steps = [
+      ["Загрузите первую накладную", real.length > 0, "#/invoices"],
+      ["Укажите email для алертов", !!profile.email, "#/settings"],
+      ["Добавьте накладную от второго поставщика: тогда появится сравнение цен", new Set(real.map((i) => i.supplier_name).filter(Boolean)).size > 1, "#/invoices"],
+    ];
+    const showStart = !storage.get("sr.startHidden") && steps.some(([, done]) => !done);
 
     app.innerHTML = `
       <div class="page-head"><h1>Накладные</h1></div>
+      ${invoices.some((i) => i.demo) ? `<div class="card demo-banner" role="status">
+        <div><b>Вы смотрите демо-данные.</b> <span class="small muted">Так выглядит сервис, когда накладные уже загружены. Свои накладные появятся рядом.</span></div>
+        <button type="button" id="clear-demo">Удалить демо-данные</button></div>` : ""}
+      ${showStart ? `<section class="card start" aria-labelledby="start-title">
+        <div class="order-head"><h2 id="start-title" style="margin:0">Начало работы</h2><button type="button" class="link" id="hide-start">Скрыть</button></div>
+        <ol class="steps">${steps.map(([text, done, href]) => `<li class="${done ? "done" : ""}">
+          ${done ? '<span class="sr-only">Готово: </span>' : ""}${done ? esc(text) : `<a href="${href}">${esc(text)}</a>`}</li>`).join("")}</ol></section>` : ""}
       <div class="card upload" id="drop">
         <div class="upload-icon" aria-hidden="true">${ICONS.camera}</div>
         <div>
@@ -748,6 +768,8 @@
           <span class="small muted">Фото или PDF. AI прочитает строки и сверит цены за 10–20 секунд.</span>
         </div>
         <div class="actions">
+          ${locations.length > 1 ? `<div class="loc-pick"><label for="upload-location">Точка</label>
+            <select id="upload-location">${locations.map((l) => `<option value="${esc(l.location_id)}">${esc(l.name)}</option>`).join("")}</select></div>` : ""}
           <label class="button primary camera-only">
             Сфотографировать<input id="camera" class="sr-only" type="file" accept="image/*" capture="environment">
           </label>
@@ -765,7 +787,8 @@
         const tpl = BUSINESS[(profile || {}).business_type];
         list.innerHTML = emptyState("doc", "Пока нет накладных",
           "Загрузите первую накладную выше. Цены начнут сравниваться со второй поставки того же товара."
-          + (tpl ? ` Для начала отслеживайте ${esc(tpl.watch)}.` : ""));
+          + (tpl ? ` Для начала отслеживайте ${esc(tpl.watch)}.` : ""),
+          '<button type="button" class="primary" id="seed-demo">Посмотреть на демо-данных</button>');
         return;
       }
       const q = listState.query.toLowerCase();
@@ -775,7 +798,7 @@
       const rows = shown.map((i) => `
         <tr class="clickable" data-id="${esc(i.invoice_id)}">
           <td><a class="row-link" href="#/invoices/${esc(i.invoice_id)}">${esc(i.supplier_name || i.file_name || "Без названия")}</a>
-            <span class="cell-sub">${i.invoice_number ? `№ ${esc(i.invoice_number)}` : ""}${i.lines ? `${i.invoice_number ? ", " : ""}${i.lines} ${plural(i.lines, "строка", "строки", "строк")}` : ""}</span></td>
+            <span class="cell-sub">${locName[i.location_id] ? `${esc(locName[i.location_id])}, ` : ""}${i.invoice_number ? `№ ${esc(i.invoice_number)}` : ""}${i.lines ? `${i.invoice_number ? ", " : ""}${i.lines} ${plural(i.lines, "строка", "строки", "строк")}` : ""}</span></td>
           <td class="num">${money(i.total)}</td>
           <td data-m="sub">${fmtDate(i.invoice_date || i.created_at)}</td>
           <td class="num">${badge(i.status)}${i.issues ? `<span class="cell-sub">${i.issues} ${plural(i.issues, "замечание", "замечания", "замечаний")}</span>` : ""}</td>
@@ -808,6 +831,13 @@
     };
     if (!FILTERS.some(([k]) => k === listState.filter)) listState.filter = "all";
     drawList();
+    const demoBtn = (id, call, text) => app.querySelector(id)?.addEventListener("click", async (ev) => {
+      const done = busyButton(ev.currentTarget, text);
+      try { await call(); profile = null; reload(); } catch (err) { done(); if (!err.silent) toast(err.message, true); }
+    });
+    demoBtn("#seed-demo", () => api("POST", "/demo"), "Готовим…");
+    demoBtn("#clear-demo", () => api("DELETE", "/demo"), "Удаляем…");
+    app.querySelector("#hide-start")?.addEventListener("click", () => { storage.set("sr.startHidden", true); reload(); });
 
     const drop = app.querySelector("#drop");
     const progress = app.querySelector("#progress");
@@ -1187,7 +1217,7 @@
   // ------------------------------------------------------------ alerts
 
   async function renderAlerts(alive) {
-    const data = await api("GET", "/alerts");
+    const [data, contracts] = await Promise.all([api("GET", "/alerts"), api("GET", "/contracts").catch(() => null)]);
     if (!alive()) return;
     const alerts = data.alerts || [];
     alertCount.value = alerts.length;
@@ -1196,6 +1226,8 @@
     const total = alerts.reduce((s, a) => s + (a.new_price - a.old_price) * (a.quantity || 1), 0);
     app.innerHTML = `
       <div class="page-head"><h1>Алерты</h1></div>
+      ${contracts && contracts.violations ? `<div class="card notice-card" role="status"><b>Цены выше договорных: ${contracts.violations}.</b>
+        <a href="#/contracts">Посмотреть и написать претензию</a></div>` : ""}
       <div class="card overpay">
         <div>
           <div class="small muted">Переплата по последним повышениям</div>
@@ -1218,11 +1250,14 @@
           <div class="links">
             <a href="#/products/${encodeURIComponent(a.product_key)}">История цены</a>
             <a href="#/invoices/${esc(a.invoice_id)}">Накладная</a>
+            <button type="button" class="link claim-btn" data-claim data-invoice="${esc(a.invoice_id)}" data-product="${esc(a.product_key)}">Претензия поставщику</button>
           </div>
         </article>`).join("")
         : `<div class="card">${emptyState("bell", "Повышений цен пока нет",
           "Как только поставщик поднимет цену выше порога, алерт появится здесь и придёт на email.",
           '<a class="button" href="#/settings">Настроить порог</a>')}</div>`}`;
+    app.querySelectorAll("[data-claim]").forEach((btn) => btn.addEventListener("click", () =>
+      startClaim({ kind: "alert", invoice_id: btn.dataset.invoice, product_key: btn.dataset.product }, btn)));
   }
 
   // ------------------------------------------------------------ settings
@@ -1307,6 +1342,8 @@
         <p class="template-note small" id="template-note" aria-live="polite" hidden></p>
         <label for="business-name">Название <span class="muted">(необязательно)</span></label>
         <input id="business-name" type="text" maxlength="80" autocomplete="organization" placeholder="Кофейня на Абая">
+        <label class="check"><input type="checkbox" id="load-demo" checked>
+          <span>Показать сервис на демо-данных: пример накладных и алерт о росте цены. Удалить их можно в один клик.</span></label>
         <p class="field-error" id="welcome-error" role="alert" hidden></p>
         <div class="actionbar">
           <button class="primary" type="submit">Продолжить</button>
@@ -1328,6 +1365,7 @@
       try {
         await api("PUT", "/settings", { business_type: type, threshold_pct: BUSINESS[type].threshold,
           business_name: app.querySelector("#business-name").value });
+        if (type !== "supplier" && app.querySelector("#load-demo").checked) await api("POST", "/demo").catch(() => {});
         profile = null;
         location.hash = type === "supplier" ? "#/suppliers" : "#/invoices";
       } catch (err) {
@@ -1619,8 +1657,9 @@
   // ---- subscription (demo payment)
 
   const PLAN_FEATURES = {
-    free: ["Накладные, сверка сумм и алерты на email", "Дашборд переплат и экономия", "Заявки поставщикам", "До 3 рецептов с себестоимостью"],
-    pro: ["Всё из бесплатного", "AI-помощник по вашим закупкам, до 30 вопросов в день", "Рецепты без ограничений"],
+    free: ["Накладные, сверка сумм и алерты на email", "Дашборд переплат, претензии поставщикам", "Заявки поставщикам", "До 3 рецептов и 3 договорных цен"],
+    pro: ["Всё из бесплатного", "AI-помощник по вашим закупкам, до 30 вопросов в день", "Рецепты и договорные цены без ограничений"],
+    network: ["Всё из Pro", "До 10 точек в одном аккаунте", "Накладные по точкам и сравнение точек"],
     supplier_free: ["Каталог до 20 товаров", "Заявки от бизнеса"],
     supplier_pro: ["Каталог до 200 товаров", "Всё из бесплатного"],
   };
@@ -1643,12 +1682,6 @@
               : p.price ? `<button type="button" class="primary" data-plan="${p.id}">Подключить ${esc(p.name)}</button>`
               : '<button type="button" data-plan="free">Вернуться на бесплатный</button>'}
           </article>`).join("")}
-        ${sub.role === "business" ? `
-          <article class="card plan soon-plan" aria-labelledby="plan-business">
-            <h2 id="plan-business">Business <span class="badge soon">В разработке</span></h2>
-            <div class="plan-price"><span class="small muted">цена будет позже</span></div>
-            <ul class="plain"><li>Несколько точек и сотрудников в одном аккаунте</li><li>Живой менеджер по закупкам</li><li>Выгрузка в 1С</li></ul>
-          </article>` : ""}
       </div>
       <div class="card" id="demo-pay" tabindex="-1" hidden style="max-width:640px">
         <h2 id="demo-title"></h2>
@@ -1696,7 +1729,7 @@
 
   async function renderAssistant() {
     const p = await loadProfile();
-    if (p.plan !== "pro") {
+    if (!isPro()) {
       app.innerHTML = `
         <a class="back" href="#/more">← Ещё</a>
         <div class="page-head"><h1>AI-помощник</h1></div>
@@ -1752,46 +1785,317 @@
     app.querySelectorAll("[data-q]").forEach((b) => b.addEventListener("click", () => ask(b.dataset.q)));
   }
 
-  // ---- savings dashboard
+  // ------------------------------------------------------------ savings report, claims, contracts, points
+
+  const isPro = () => ["pro", "network"].includes((profile || {}).plan);
+  const isNetwork = () => (profile || {}).plan === "network";
+  const monthName = (m) => new Date(`${m}-01T00:00:00`).toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
+  const pctText = (v) => String(v).replace(".", ",");
+
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("Текст скопирован");
+    } catch {
+      const ta = Object.assign(document.createElement("textarea"), { value: text });
+      document.body.append(ta);
+      ta.select();
+      try { document.execCommand("copy"); toast("Текст скопирован"); } catch { toast("Не удалось скопировать: выделите текст и скопируйте вручную", true); }
+      ta.remove();
+    }
+  }
+
+  // ---- savings: «Вернём переплату»
 
   async function renderSavings(alive) {
     const d = await api("GET", "/savings");
     if (!alive()) return;
     const empty = !d.spent;
+    const pb = d.payback;
+    const trend = d.previous_overpay
+      ? ` В прошлом периоде было ${money(d.previous_overpay)}: ${d.overpay > d.previous_overpay ? "стало хуже" : d.overpay < d.previous_overpay ? "стало лучше" : "без изменений"}.`
+      : "";
+    const planText = isPro() ? "Ваш тариф уже включён, возвращённые деньги идут в плюс."
+      : pb.pays_back ? `Это больше, чем стоит Pro (${money(pb.pro_price)} в месяц): подписка окупится.`
+        : `Pro стоит ${money(pb.pro_price)} в месяц и окупится, когда вы вернёте столько же.`;
+    const maxMonth = Math.max(1, ...d.by_month.map((m) => m.spent));
     app.innerHTML = `
       <a class="back" href="#/more">← Ещё</a>
       <div class="page-head"><h1>Переплаты</h1>
         <p class="sub">Сколько вы заплатили за ${d.period_days} дней сверх лучшей цены среди ваших поставщиков.</p></div>
+      ${empty ? `<div class="card">${emptyState("chart", "Пока нет закупок за этот период",
+        "Загрузите накладные: переплаты считаются по товарам, которые вы покупали у разных поставщиков. Или посмотрите на демо-данных.",
+        '<a class="button primary" href="#/invoices">К накладным</a>')}</div>` : `
+      <section class="card payback" aria-labelledby="pb-title">
+        <h2 id="pb-title">Вернём переплату</h2>
+        <p>${d.overpay
+          ? `За ${d.period_days} дней вы заплатили сверх лучшей цены <b>${money(d.overpay)}</b> (${pctText(d.overpay_pct)}% закупок).${trend}
+             Если вернуть хотя бы треть, это ${money(pb.recoverable)}. ${planText}`
+          : `За ${d.period_days} дней вы покупали по лучшим ценам. Чтобы следить и за ростом цен, задайте договорные цены.`}</p>
+        <div class="actionbar">
+          <a class="button primary" href="#/alerts">${d.overpay ? "Написать претензии по алертам" : "Смотреть алерты"}</a>
+          <a class="button" href="#/contracts">Контрактные цены</a>
+          <a class="button" href="#/claims">Мои претензии</a>
+          ${isPro() ? "" : '<a class="button" href="#/subscription">Тариф Pro</a>'}
+        </div>
+      </section>
       <div class="facts four">
         ${stat("Закупок", money(d.spent), `за ${d.period_days} дней`)}
-        ${stat("Переплата", money(d.overpay), d.spent ? `${String(d.overpay_pct).replace(".", ",")}% от закупок` : "нет данных")}
-        ${stat("Рост цен", money(d.price_growth), "по алертам за период")}
-        ${stat("Можно сэкономить", money(d.overpay), "в месяц при лучшей цене")}
+        ${stat("Переплата", money(d.overpay), `${pctText(d.overpay_pct)}% от закупок`)}
+        ${stat("Можно вернуть", money(pb.recoverable), "треть переплаты")}
+        ${stat("Уже вернули", money(d.refunded), "по решённым претензиям")}
       </div>
-      ${empty ? `<div class="card">${emptyState("chart", "Пока нет закупок за этот период",
-        "Загрузите накладные: переплаты считаются по товарам, которые вы покупали у разных поставщиков.",
-        '<a class="button primary" href="#/invoices">Загрузить накладную</a>')}</div>`
-        : `<div class="card flush"><div class="toolbar"><h2 style="margin:0">Где переплачено</h2>
-            ${d.items.length ? '<button type="button" class="export" id="export">Скачать в Excel</button>' : ""}</div>
-          ${d.items.length ? `<div class="table-wrap"><table class="responsive">
-            <thead><tr><th>Товар</th><th class="num">Куплено</th><th class="num">Переплата</th><th class="num">Лучшая цена</th></tr></thead>
-            <tbody>${d.items.map((i) => `<tr class="clickable" data-key="${esc(i.product_key)}">
-              <td data-m="wide"><a class="row-link" href="#/products/${encodeURIComponent(i.product_key)}">${esc(i.name)}</a>
-                <span class="cell-sub">Платили в среднем ${money(i.paid_avg)}</span></td>
-              <td class="num" data-m="sub">${esc(i.qty)} ${esc(i.unit || "")}</td>
-              <td class="num"><b>${money(i.overpay)}</b></td>
-              <td class="num" data-m="hide">${money(i.best_price)}<span class="cell-sub">${esc(i.best_supplier || "")}</span></td></tr>`).join("")}</tbody></table></div>`
-            : `<p class="muted" style="padding:16px 22px;margin:0">Переплат нет: вы покупали по лучшим ценам. Так держать.</p>`}</div>
-          ${d.by_supplier.length ? `<div class="card flush" style="margin-top:16px"><div class="toolbar"><h2 style="margin:0">Переплата по поставщикам</h2></div>
-            <table><thead><tr><th>Поставщик</th><th class="num">Переплата</th></tr></thead>
-            <tbody>${d.by_supplier.map((s) => `<tr><td>${esc(s.supplier)}</td><td class="num">${money(s.overpay)}</td></tr>`).join("")}</tbody></table></div>` : ""}
-          <div class="actionbar" style="margin-top:16px"><a class="button" href="#/suppliers">Найти поставщика дешевле</a><a class="button" href="#/assistant">Спросить помощника</a></div>`}`;
+      <div class="card flush"><div class="toolbar"><h2 style="margin:0">Где переплачено</h2>
+          ${d.items.length ? '<button type="button" class="export" id="export">Скачать в Excel</button>' : ""}</div>
+        ${d.items.length ? `<div class="table-wrap"><table class="responsive">
+          <thead><tr><th>Товар</th><th class="num">Куплено</th><th class="num">Переплата</th><th class="num">Лучшая цена</th></tr></thead>
+          <tbody>${d.items.map((i) => `<tr class="clickable" data-key="${esc(i.product_key)}">
+            <td data-m="wide"><a class="row-link" href="#/products/${encodeURIComponent(i.product_key)}">${esc(i.name)}</a>
+              <span class="cell-sub">Платили в среднем ${money(i.paid_avg)}</span></td>
+            <td class="num" data-m="sub">${esc(i.qty)} ${esc(i.unit || "")}</td>
+            <td class="num"><b>${money(i.overpay)}</b></td>
+            <td class="num" data-m="hide">${money(i.best_price)}<span class="cell-sub">${esc(i.best_supplier || "")}</span></td></tr>`).join("")}</tbody></table></div>`
+          : '<p class="muted" style="padding:16px 22px;margin:0">Переплат нет: вы покупали по лучшим ценам. Так держать.</p>'}</div>
+      ${d.by_supplier.length ? `<div class="card flush" style="margin-top:16px"><div class="toolbar"><h2 style="margin:0">Переплата по поставщикам</h2></div>
+        <table><thead><tr><th>Поставщик</th><th class="num">Переплата</th></tr></thead>
+        <tbody>${d.by_supplier.map((s) => `<tr><td>${esc(s.supplier)}</td><td class="num">${money(s.overpay)}</td></tr>`).join("")}</tbody></table></div>` : ""}
+      <div class="card flush" style="margin-top:16px"><div class="toolbar"><h2 style="margin:0">Отчёт по месяцам</h2></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Месяц</th><th class="num">Закупки</th><th class="num">Переплата</th><th class="hide-sm"><span class="sr-only">Доля месяца</span></th></tr></thead>
+          <tbody>${d.by_month.map((m) => `<tr><td>${esc(monthName(m.month))}</td><td class="num">${money(m.spent)}</td><td class="num">${money(m.overpay)}</td>
+            <td class="bar-cell hide-sm" aria-hidden="true"><span class="bar"><i style="width:${Math.round(m.spent / maxMonth * 100)}%"></i><b style="width:${Math.round(m.overpay / maxMonth * 100)}%"></b></span></td></tr>`).join("")}</tbody></table></div>
+        <p class="small muted" style="padding:0 22px 16px">Переплата месяца считается по лучшей цене, доступной сейчас. Длинная полоса: закупки, тёмная часть: переплата.</p></div>`}`;
     app.querySelectorAll("tr[data-key]").forEach((tr) =>
       tr.addEventListener("click", (e) => { if (!e.target.closest("a")) location.hash = `#/products/${encodeURIComponent(tr.dataset.key)}`; }));
     const exp = app.querySelector("#export");
     if (exp) exp.addEventListener("click", () => downloadCsv(`pereplaty-${today()}.csv`,
       ["Товар", "Куплено", "Единица", "Платили в среднем, ₸", "Лучшая цена, ₸", "Лучший поставщик", "Переплата, ₸"],
       d.items.map((i) => [i.name, i.qty, i.unit || "", i.paid_avg, i.best_price, i.best_supplier || "", i.overpay])));
+  }
+
+  // ---- claims to suppliers
+
+  const CLAIM_STATUS = { draft: ["Черновик", "warn"], sent: ["Отправлена", "warn"], resolved: ["Решена", "ok"], rejected: ["Отказ", "bad"] };
+  Object.assign(STATUS, CLAIM_STATUS);
+  let openClaim = null;
+
+  async function startClaim(body, btn) {
+    const done = busyButton(btn, "Готовим…");
+    try {
+      const c = await api("POST", "/claims", body);
+      openClaim = c.claim_id;
+      toast("Черновик претензии готов");
+      location.hash = "#/claims";
+    } catch (err) {
+      done();
+      if (!err.silent) toast(err.message, true);
+    }
+  }
+
+  async function renderClaims(alive) {
+    const data = await api("GET", "/claims");
+    if (!alive()) return;
+    const claims = data.claims || [];
+    const open = openClaim;
+    openClaim = null;
+    const total = claims.reduce((t, c) => t + (c.amount || 0), 0);
+    const actions = (c) => ({
+      draft: [["sent", "Отметить отправленной", "primary"]],
+      sent: [["resolve", "Поставщик вернул деньги", "primary"], ["rejected", "Поставщик отказал", ""]],
+      resolved: [], rejected: [],
+    }[c.status] || []);
+    app.innerHTML = `
+      <a class="back" href="#/more">← Ещё</a>
+      <div class="page-head"><h1>Претензии поставщикам</h1>
+        <p class="sub">Готовый текст с цифрами и номером накладной. Скопируйте его или откройте в почте и отправьте поставщику сами.</p></div>
+      <div class="facts">
+        ${stat("Претензий", claims.length, "всего")}
+        ${stat("На сумму", money(total), "разница в ценах")}
+        ${stat("Вернули", money(data.refunded), "по решённым")}
+      </div>
+      ${claims.length ? claims.map((c) => `
+        <article class="card claim" data-id="${esc(c.claim_id)}">
+          <div class="order-head">
+            <div><div class="title">${esc(c.subject)}</div>
+              <div class="small muted">${esc(c.supplier_name || "")} · ${fmtDate(c.created_at)}</div></div>
+            <div>${badge(c.status)}<div class="order-total">${money(c.status === "resolved" ? c.refund : c.amount)}</div>
+              ${c.status === "resolved" ? '<div class="small muted">возвращено</div>' : ""}</div>
+          </div>
+          <details${c.claim_id === open || c.status === "draft" ? " open" : ""}><summary>Текст претензии</summary>
+            <pre class="claim-text">${esc(c.text)}</pre>
+            <div class="actionbar">
+              <button type="button" data-copy>Скопировать текст</button>
+              <a class="button" href="mailto:?subject=${encodeURIComponent(c.subject)}&body=${encodeURIComponent(c.text)}">Открыть в почте</a>
+              ${c.invoice_id ? `<a class="button" href="#/invoices/${esc(c.invoice_id)}">Накладная для вложения</a>` : ""}
+            </div></details>
+          <div class="actionbar">${actions(c).map(([s, label, cls]) => `<button type="button" class="${cls}" data-status="${s}">${label}</button>`).join("")}</div>
+          <form class="refund" hidden novalidate>
+            <label for="refund-${esc(c.claim_id)}">Сколько вернул поставщик, ₸</label>
+            <input id="refund-${esc(c.claim_id)}" type="number" inputmode="decimal" min="0" step="any" value="${esc(c.amount)}">
+            <div class="actionbar"><button class="primary" type="submit">Сохранить</button></div>
+          </form>
+        </article>`).join("")
+        : `<div class="card">${emptyState("doc", "Претензий пока нет",
+          "Откройте «Алерты» и нажмите «Претензия поставщику» у подорожавшего товара, или задайте договорные цены.",
+          '<a class="button primary" href="#/alerts">К алертам</a>')}</div>`}`;
+    app.querySelectorAll(".claim").forEach((card) => {
+      const c = claims.find((x) => x.claim_id === card.dataset.id);
+      card.querySelector("[data-copy]").addEventListener("click", () => copyText(c.text));
+      const form = card.querySelector(".refund");
+      const save = async (body, btn) => {
+        const done = busyButton(btn, "Сохраняем…");
+        try { await api("PUT", `/claims/${c.claim_id}`, body); toast("Статус претензии обновлён"); reload(); } catch (err) { done(); if (!err.silent) toast(err.message, true); }
+      };
+      card.querySelectorAll("[data-status]").forEach((btn) => btn.addEventListener("click", () => {
+        if (btn.dataset.status === "resolve") { form.hidden = false; form.querySelector("input").focus(); return; }
+        save({ status: btn.dataset.status }, btn);
+      }));
+      form.addEventListener("submit", (ev) => {
+        ev.preventDefault();
+        save({ status: "resolved", refund: toNum(form.querySelector("input").value) }, form.querySelector("button[type=submit]"));
+      });
+    });
+  }
+
+  // ---- contract prices
+
+  async function renderContracts(alive) {
+    const d = await api("GET", "/contracts");
+    if (!alive()) return;
+    const status = (c) => c.status === "over" ? `<span class="badge bad">Выше договора на ${pctText(c.deviation_pct)}%</span>`
+      : c.status === "ok" ? '<span class="badge ok">В норме</span>' : '<span class="badge soon">Нет данных</span>';
+    app.innerHTML = `
+      <a class="back" href="#/more">← Ещё</a>
+      <div class="page-head"><h1>Контрактные цены</h1>
+        <p class="sub">Укажите цену из договора с поставщиком. Если в накладной она выше допуска, вы увидите это сразу и сможете отправить претензию.</p></div>
+      ${d.violations ? `<div class="card notice-card" role="status"><b>Выше договорных цен: ${d.violations} ${plural(d.violations, "товар", "товара", "товаров")}.</b>
+        Переплата с начала контроля: ${money(d.overpay)}.</div>` : ""}
+      <form class="card" id="contract-form" style="max-width:640px" novalidate>
+        <h2>Новая договорная цена</h2>
+        ${d.candidates.length ? `
+          <label for="c-pair">Товар и поставщик</label>
+          <select id="c-pair">${d.candidates.map((c, i) => `<option value="${i}">${esc(c.product_name)}: ${esc(c.supplier_name)} (сейчас ${money(c.last_price)})</option>`).join("")}</select>
+          <div class="form-row">
+            <div><label for="c-price">Цена по договору, ₸</label><input id="c-price" type="number" inputmode="decimal" min="0" step="any" required value="${esc(d.candidates[0].last_price)}"></div>
+            <div><label for="c-tol">Допуск, %</label><input id="c-tol" type="number" inputmode="decimal" min="0" max="50" step="0.5" value="2"></div>
+          </div>
+          <p class="field-hint">Допуск: на сколько процентов цена может быть выше договорной без тревоги.</p>
+          <p class="field-error" id="contract-error" role="alert" hidden></p>
+          <div class="actionbar"><button class="primary" type="submit">Следить за ценой</button>
+            <span class="small muted">${d.contracts.length} из ${d.limit}${d.contracts.length >= d.limit && d.limit < 100 ? ' · <a href="#/subscription">Без ограничений на тарифе Pro</a>' : ""}</span></div>`
+          : '<p class="muted" style="margin:0">Товаров для договорных цен пока нет. Они появятся после первых накладных, а пока можно посмотреть демо-данные на странице «Накладные».</p>'}
+      </form>
+      ${d.contracts.map((c) => `
+        <article class="card contract" data-id="${esc(c.contract_id)}">
+          <div class="order-head"><div><div class="title">${esc(c.product_name)}</div><div class="small muted">${esc(c.supplier_name)}</div></div><div>${status(c)}</div></div>
+          <div class="recipe-facts">
+            <div><span class="small muted">По договору</span><b>${money(c.price)}</b></div>
+            <div><span class="small muted">Сейчас в накладных</span><b>${money(c.actual_price)}</b></div>
+            <div><span class="small muted">Допуск</span><b>${pctText(c.tolerance_pct)}%</b></div>
+          </div>
+          ${c.status === "over" ? `<p class="small notice-warn">В накладной от ${fmtDate(c.actual_date)} цена выше договорной. Переплата с начала контроля: ${money(c.overpay)}.</p>` : ""}
+          <div class="actionbar">${c.status === "over" ? '<button type="button" class="primary" data-claim>Написать претензию</button>' : ""}
+            <button type="button" data-delete>Удалить</button></div>
+        </article>`).join("")}`;
+    const form = app.querySelector("#contract-form");
+    const pair = form.querySelector("#c-pair");
+    if (pair) {
+      pair.addEventListener("change", () => { form.querySelector("#c-price").value = d.candidates[pair.value].last_price; });
+      form.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const errorEl = form.querySelector("#contract-error");
+        errorEl.hidden = true;
+        const price = toNum(form.querySelector("#c-price").value);
+        if (price == null || price <= 0) { errorEl.textContent = "Укажите цену по договору больше нуля"; errorEl.hidden = false; form.querySelector("#c-price").focus(); return; }
+        const c = d.candidates[pair.value];
+        const done = busyButton(form.querySelector("button[type=submit]"), "Сохраняем…");
+        try {
+          await api("PUT", "/contracts", { product_key: c.product_key, supplier_key: c.supplier_key, price, tolerance_pct: toNum(form.querySelector("#c-tol").value) });
+          toast("Договорная цена сохранена");
+          reload();
+        } catch (err) { done(); if (!err.silent) { errorEl.textContent = err.message; errorEl.hidden = false; } }
+      });
+    }
+    app.querySelectorAll(".contract").forEach((card) => {
+      const id = card.dataset.id;
+      const claim = card.querySelector("[data-claim]");
+      if (claim) claim.addEventListener("click", () => startClaim({ kind: "contract", contract_id: id }, claim));
+      confirmButton(card.querySelector("[data-delete]"), async () => {
+        try { await api("DELETE", `/contracts/${id}`); toast("Договорная цена удалена"); reload(); } catch (err) { if (!err.silent) toast(err.message, true); }
+      });
+    });
+  }
+
+  // ---- points of a network
+
+  async function renderLocations(alive) {
+    const d = await api("GET", "/locations");
+    if (!alive()) return;
+    const network = d.plan === "network";
+    const worst = d.locations.filter((l) => l.spent).sort((a, b) => b.overpay_pct - a.overpay_pct)[0];
+    const extra = d.locations.filter((l) => !l.main).length;
+    app.innerHTML = `
+      <a class="back" href="#/more">← Ещё</a>
+      <div class="page-head"><h1>Точки</h1>
+        <p class="sub">Закупки и переплаты по каждой точке за 30 дней. Накладную относят к точке при загрузке.</p></div>
+      <div class="card flush"><div class="toolbar"><h2 style="margin:0">Сравнение точек</h2></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Точка</th><th class="num hide-sm">Накладных</th><th class="num hide-sm">Закупки</th><th class="num">Переплата</th></tr></thead>
+          <tbody>${d.locations.map((l) => `
+            <tr data-id="${esc(l.location_id)}">
+              <td>${esc(l.name)}${l.main ? ' <span class="badge ok">основная</span>' : ""}${worst && worst === l && d.locations.length > 1 ? ' <span class="badge warn">больше переплат</span>' : ""}
+                ${l.address ? `<span class="cell-sub">${esc(l.address)}</span>` : ""}
+                <span class="cell-sub">Закупки ${money(l.spent)}, накладных: ${l.invoices}</span>
+                ${l.main ? "" : '<span class="row-actions" style="justify-content:flex-start;margin-top:6px"><button type="button" data-edit>Изменить</button><button type="button" data-delete>Удалить</button></span>'}</td>
+              <td class="num hide-sm">${l.invoices}</td><td class="num hide-sm">${money(l.spent)}</td>
+              <td class="num">${money(l.overpay)}<span class="cell-sub">${pctText(l.overpay_pct)}%</span></td></tr>`).join("")}</tbody></table></div></div>
+      ${network ? `
+        <form class="card" id="loc-form" style="max-width:520px;margin-top:16px" novalidate>
+          <h2 id="loc-title">Новая точка</h2>
+          <label for="l-name">Название</label><input id="l-name" maxlength="60" required placeholder="Кофейня на Достык">
+          <label for="l-address">Адрес <span class="muted">(необязательно)</span></label><input id="l-address" maxlength="120" autocomplete="street-address">
+          <p class="field-error" id="loc-error" role="alert" hidden></p>
+          <div class="actionbar"><button class="primary" type="submit" id="loc-save">Добавить точку</button><button type="button" id="loc-cancel" hidden>Отменить изменение</button>
+            <span class="small muted">${extra + 1} из ${d.limit}</span></div>
+        </form>`
+        : `<div class="card" style="max-width:640px;margin-top:16px">${emptyState("box", "Несколько точек входят в тариф «Сеть»",
+          "Заведите кофейни или магазины сети в одном аккаунте, относите накладные к точкам и сравнивайте, где закупки дороже. Подключить можно в демо-режиме.",
+          '<a class="button primary" href="#/subscription">Посмотреть тарифы</a>')}</div>`}`;
+    const form = app.querySelector("#loc-form");
+    if (!form) return;
+    const errorEl = form.querySelector("#loc-error");
+    let editing = null;
+    const setMode = (l) => {
+      editing = l ? l.location_id : null;
+      form.querySelector("#loc-title").textContent = l ? "Изменить точку" : "Новая точка";
+      form.querySelector("#loc-save").textContent = l ? "Сохранить" : "Добавить точку";
+      form.querySelector("#loc-cancel").hidden = !l;
+      form.querySelector("#l-name").value = l ? l.name : "";
+      form.querySelector("#l-address").value = l && l.address ? l.address : "";
+      errorEl.hidden = true;
+    };
+    form.querySelector("#loc-cancel").addEventListener("click", () => setMode(null));
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const name = form.querySelector("#l-name").value.trim();
+      if (!name) { errorEl.textContent = "Введите название точки"; errorEl.hidden = false; form.querySelector("#l-name").focus(); return; }
+      const body = { name, address: form.querySelector("#l-address").value };
+      const done = busyButton(form.querySelector("#loc-save"), "Сохраняем…");
+      try {
+        if (editing) await api("PUT", `/locations/${editing}`, body); else await api("POST", "/locations", body);
+        toast("Точка сохранена");
+        reload();
+      } catch (err) { done(); if (!err.silent) { errorEl.textContent = err.message; errorEl.hidden = false; } }
+    });
+    app.querySelectorAll("tr[data-id]").forEach((tr) => {
+      const loc = d.locations.find((l) => l.location_id === tr.dataset.id);
+      const edit = tr.querySelector("[data-edit]");
+      if (!edit) return;
+      edit.addEventListener("click", () => { setMode(loc); form.scrollIntoView({ block: "center" }); form.querySelector("#l-name").focus(); });
+      confirmButton(tr.querySelector("[data-delete]"), async () => {
+        try { await api("DELETE", `/locations/${loc.location_id}`); toast("Точка удалена, её накладные перешли в основную"); reload(); } catch (err) { if (!err.silent) toast(err.message, true); }
+      });
+    });
   }
 
   // ---- recipes: cost of a dish
@@ -1954,10 +2258,13 @@
       <ul class="tiles">
         ${tile("#/suppliers", "truck", "Поставщики", "Каталоги и заявки в один клик")}
         ${tile("#/orders", "doc", "Мои заявки", "Статусы заявок поставщикам")}
-        ${tile("#/savings", "chart", "Переплаты", "Сколько можно сэкономить на закупках")}
+        ${tile("#/savings", "chart", "Переплаты", "Сколько можно вернуть и сэкономить")}
+        ${tile("#/claims", "doc", "Претензии", "Готовый текст поставщику с цифрами")}
+        ${tile("#/contracts", "check", "Контрактные цены", "Следим, чтобы цена не вышла за договор", isPro() ? "" : '<span class="badge pro">3 бесплатно</span>')}
         ${tile("#/recipes", "cup", "Себестоимость блюд", "Рецепты и маржа по текущим ценам")}
-        ${tile("#/assistant", "chat", "AI-помощник", "Отвечает по вашим накладным", p.plan === "pro" ? "" : '<span class="badge pro">Pro</span>')}
-        ${tile("#/subscription", "star", "Подписка", p.plan === "pro" ? "Тариф Pro" : "Бесплатный тариф, есть Pro")}
+        ${tile("#/assistant", "chat", "AI-помощник", "Отвечает по вашим накладным", isPro() ? "" : '<span class="badge pro">Pro</span>')}
+        ${tile("#/locations", "bag", "Точки", "Сравнение закупок по точкам сети", isNetwork() ? "" : '<span class="badge pro">Сеть</span>')}
+        ${tile("#/subscription", "star", "Подписка", `Тариф ${({ pro: "Pro", network: "Сеть" })[p.plan] || "бесплатный"}`)}
         ${Object.entries(SOON).map(([k, f]) => tile(`#/${k}`, f.icon, f.title, f.lead, soonBadge)).join("")}
         ${p.is_admin ? tile("#/admin", "shield", "Админ-панель", "Сводка по всему сервису. Видна только администратору.") : ""}
       </ul>`;
