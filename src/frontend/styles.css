@@ -248,13 +248,14 @@ button.icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; s
 @media (max-width: 720px) { button, .button { min-height: 44px; } }
 
 label { display: block; font-size: 0.8125rem; font-weight: 500; color: var(--muted); margin: 12px 0 5px; }
-input, select {
+input, select, textarea {
   font: inherit; width: 100%; min-height: 42px; padding: 8px 13px;
   border: 1px solid var(--control-border); border-radius: var(--radius-sm);
   background: var(--surface); color: var(--text);
   transition: border-color .15s, box-shadow .15s;
 }
-input:focus-visible, select:focus-visible { border-radius: var(--radius-sm); }
+input:focus-visible, select:focus-visible, textarea:focus-visible { border-radius: var(--radius-sm); }
+textarea { min-height: 70px; resize: vertical; line-height: 1.45; }
 input::placeholder { color: var(--muted); opacity: .8; }
 input:disabled { background: var(--surface-2); color: var(--muted); }
 input.flagged { border-color: var(--rise); border-width: 2px; background: var(--rise-bg); }
@@ -683,3 +684,46 @@ body.landing .container { max-width: none; padding: 0; }
   :root { --muted: var(--text); --border: var(--control-border); --border-strong: var(--control-border); }
   .hero { --muted: #fff; --control-border: #fff; }
 }
+
+/* ---------- suppliers, orders, plans, assistant, recipes ---------- */
+.form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.badge.pro { background: var(--info-bg); color: var(--info); }
+.badge.pro::before { display: none; }
+input.qty { width: 5.5rem; text-align: right; }
+.order-foot { padding: 16px 22px 20px; border-top: 1px solid var(--border); }
+.row-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.row-actions button { min-height: 34px; padding: 3px 12px; font-size: 0.8125rem; }
+.order-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+.order-head > div:last-child { text-align: right; }
+.order-total { font-size: 1.25rem; margin-top: 6px; letter-spacing: -.02em; }
+.title { font-weight: 600; }
+details { margin: 12px 0 0; }
+summary { cursor: pointer; font-weight: 500; min-height: 32px; display: flex; align-items: center; }
+details table { margin-top: 8px; }
+.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 16px; }
+.plan { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.plan h2 { margin: 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.plan.current { border: 2px solid var(--accent-ink); }
+.plan-price { font-size: 1.75rem; letter-spacing: -.03em; line-height: 1.2; }
+.plan ul.plain { margin: 0; padding-left: 20px; flex: 1; }
+.plan ul.plain li { margin-bottom: 6px; }
+.plan > button { align-self: flex-start; }
+.soon-plan { border-style: dashed; }
+.chat-card { max-width: 760px; }
+.chat { display: flex; flex-direction: column; gap: 10px; max-height: 50vh; overflow-y: auto; padding: 4px 2px 12px; }
+.bubble { max-width: 85%; padding: 10px 14px; border-radius: 16px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+.bubble.user { align-self: flex-end; background: var(--navy); color: var(--cream); border-bottom-right-radius: 4px; }
+.bubble.bot { align-self: flex-start; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+@media (prefers-color-scheme: dark) { .bubble.user { background: var(--cream); color: var(--navy); } }
+.chat-card .chips { margin: 4px 0 8px; }
+fieldset.ingredients { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin: 14px 0 0; min-width: 0; }
+fieldset.ingredients legend { font-weight: 600; padding: 0 6px; }
+.ing-row { display: grid; grid-template-columns: minmax(0, 1fr) 6.5rem auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+@media (max-width: 480px) { .ing-row { grid-template-columns: minmax(0, 1fr) 5rem; } .ing-row .link { grid-column: 1 / -1; justify-self: start; } }
+.recipe-sum { font-weight: 600; margin: 12px 0 0; }
+.recipe-facts { display: flex; gap: 22px; flex-wrap: wrap; margin: 12px 0 0; }
+.recipe-facts div { display: flex; flex-direction: column; }
+.recipe-facts b { font-size: 1.25rem; letter-spacing: -.02em; font-weight: 500; }
+.notice-warn { color: var(--warn); margin: 10px 0 0; }
+.on-dark { color: rgba(244, 237, 224, .88); }
+.on-dark a { color: #fff; }

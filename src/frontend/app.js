@@ -136,6 +136,9 @@
     other: { label: "Другой бизнес", icon: "box", threshold: 5,
       about: "Любые регулярные закупки у поставщиков",
       watch: "товары, которые вы покупаете чаще всего" },
+    supplier: { label: "Я поставщик", icon: "truck", threshold: 5,
+      about: "Продаю товары кафе, магазинам и ресторанам",
+      note: "Вы получите кабинет поставщика: каталог товаров с ценами и заявки от бизнеса." },
   };
 
   // Saves rows as a CSV file that Excel opens directly: UTF-8 with BOM, ";" separator, decimal comma.
@@ -319,11 +322,20 @@
     [/^#\/settings$/, renderSettings, true, "Настройки"],
     [/^#\/welcome$/, renderWelcome, true, "Знакомство"],
     [/^#\/more$/, renderMore, true, "Ещё"],
-    [/^#\/(suppliers|assistant|subscription)$/, renderSoon, true, "Скоро"],
+    [/^#\/suppliers$/, renderSuppliers, true, "Поставщики"],
+    [/^#\/suppliers\/([\w-]+)$/, renderSupplier, true, "Поставщик"],
+    [/^#\/orders$/, renderOrders, true, "Заявки"],
+    [/^#\/subscription$/, renderSubscription, true, "Подписка"],
+    [/^#\/assistant$/, renderAssistant, true, "AI-помощник"],
+    [/^#\/savings$/, renderSavings, true, "Переплаты"],
+    [/^#\/recipes$/, renderRecipes, true, "Себестоимость блюд"],
+    [/^#\/(telegram)$/, renderSoon, true, "Скоро"],
     [/^#\/admin$/, renderAdmin, true, "Админ-панель"],
   ];
   // Pages that live under the «Ещё» tab.
-  const MORE_SECTIONS = ["more", "suppliers", "assistant", "subscription", "admin"];
+  const MORE_SECTIONS = ["more", "suppliers", "orders", "subscription", "assistant", "savings", "recipes", "telegram", "admin"];
+  // Pages that only make sense for a business: a supplier account is sent to its catalog instead.
+  const BUSINESS_ONLY = ["invoices", "products", "alerts", "savings", "recipes", "assistant", "more", "admin"];
   let renderId = 0;
   let currentHash = null;
   // A page with unsaved edits sets this; the router asks before leaving it.
@@ -369,13 +381,19 @@
     document.getElementById("topbar").hidden = !needsAuth;
     document.body.className = needsAuth ? "app" : "landing";
     const section = hash.split("/")[1];
-    const tab = MORE_SECTIONS.includes(section) ? "more" : section;
-    document.getElementById("nav").hidden = section === "welcome";
-    document.querySelectorAll("[data-nav]").forEach((a) => {
-      const on = a.dataset.nav === tab;
-      a.classList.toggle("active", on);
-      if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
-    });
+    const paintNav = () => {
+      const tab = isSupplier() || !MORE_SECTIONS.includes(section) ? section : "more";
+      document.getElementById("nav").hidden = section === "welcome";
+      document.querySelectorAll("[data-for]").forEach((a) => {
+        a.hidden = !!profile && a.dataset.for !== (isSupplier() ? "supplier" : "business");
+      });
+      document.querySelectorAll("[data-nav]").forEach((a) => {
+        const on = a.dataset.nav === tab;
+        a.classList.toggle("active", on);
+        if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+      });
+    };
+    paintNav();
     if (needsAuth) refreshAlertCount();
 
     if (!samePage) {
@@ -390,9 +408,14 @@
         const p = await loadProfile();
         if (id !== renderId) return;
         if (!p.business_type !== (section === "welcome")) {
-          location.hash = p.business_type ? "#/invoices" : "#/welcome";
+          location.hash = p.business_type ? homeFor(p) : "#/welcome";
           return;
         }
+        if (p.business_type === "supplier" && BUSINESS_ONLY.includes(section) && !(section === "admin" && p.is_admin)) {
+          location.hash = "#/suppliers";
+          return;
+        }
+        paintNav();
       }
       await render(...args, () => id === renderId);
       if (id === renderId && !samePage) {
@@ -1208,6 +1231,7 @@
     const s = await api("GET", "/settings");
     if (!alive()) return;
     profile = s;
+    const supplier = s.business_type === "supplier";
     app.innerHTML = `
       <div class="page-head"><h1>Настройки</h1></div>
       <form class="card" id="settings" style="max-width:520px" novalidate>
@@ -1219,14 +1243,17 @@
         <label for="business-name">Название</label>
         <input id="business-name" type="text" maxlength="80" autocomplete="organization" value="${esc(s.business_name || "")}">
         <p class="field-hint">Необязательно. Например, «Кофейня на Абая».</p>
-        <h2>Алерты</h2>
+        <label for="contact">${supplier ? "Контакты для заказов" : "Телефон или Telegram для связи с поставщиками"}</label>
+        <input id="contact" type="text" maxlength="120" autocomplete="tel" value="${esc(s.contact || "")}">
+        <p class="field-hint">Необязательно. ${supplier ? "Бизнесы видят это в вашем каталоге." : "Поставщик увидит это в вашей заявке."}</p>
+        ${supplier ? "" : `<h2>Алерты</h2>
         <label for="threshold">Сообщать, если цена выросла больше чем на, %</label>
         <input id="threshold" type="number" inputmode="decimal" min="0.5" max="100" step="0.5" value="${esc(s.threshold_pct)}" required>
         <p class="field-hint">Например, 5 — алерт при росте цены больше чем на 5%.</p>
         <label for="email">Email для алертов и недельной сводки</label>
         <input id="email" type="email" inputmode="email" autocomplete="email" value="${esc(s.email || s.account_email || "")}">
         <p class="field-hint">Оставьте пустым, чтобы не получать письма.</p>
-        ${s.email_pending ? '<p class="small notice" style="color:var(--warn);padding-left:10px">Подтвердите подписку: откройте письмо «AWS Notification - Subscription Confirmation» и нажмите ссылку.</p>' : ""}
+        ${s.email_pending ? '<p class="small notice" style="color:var(--warn);padding-left:10px">Подтвердите подписку: откройте письмо «AWS Notification - Subscription Confirmation» и нажмите ссылку.</p>' : ""}`}
         <p class="field-error" id="settings-error" role="alert" hidden></p>
         <div class="actionbar"><button class="primary" type="submit">Сохранить</button></div>
       </form>
@@ -1241,15 +1268,16 @@
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       errorEl.hidden = true;
-      const threshold = toNum(app.querySelector("#threshold").value);
-      const email = app.querySelector("#email").value.trim();
+      const threshold = supplier ? undefined : toNum(app.querySelector("#threshold").value);
+      const email = supplier ? undefined : app.querySelector("#email").value.trim();
       const fail = (msg, input) => { errorEl.textContent = msg; errorEl.hidden = false; input.focus(); };
-      if (threshold == null || threshold < 0.5 || threshold > 100) return fail("Порог должен быть от 0,5 до 100%", app.querySelector("#threshold"));
-      if (email && !app.querySelector("#email").checkValidity()) return fail("Введите корректный email", app.querySelector("#email"));
+      if (!supplier && (threshold == null || threshold < 0.5 || threshold > 100)) return fail("Порог должен быть от 0,5 до 100%", app.querySelector("#threshold"));
+      if (!supplier && email && !app.querySelector("#email").checkValidity()) return fail("Введите корректный email", app.querySelector("#email"));
       const done = busyButton(ev.submitter || form.querySelector("button[type=submit]"), "Сохраняем…");
       try {
         const r = await api("PUT", "/settings", { threshold_pct: threshold, email,
-          business_type: app.querySelector("#business-type").value, business_name: app.querySelector("#business-name").value });
+          business_type: app.querySelector("#business-type").value, business_name: app.querySelector("#business-name").value,
+          contact: app.querySelector("#contact").value });
         profile = null;
         toast(r.message || "Настройки сохранены");
         reload();
@@ -1293,7 +1321,7 @@
       const b = BUSINESS[e.target.value];
       errorEl.hidden = true;
       note.hidden = false;
-      note.textContent = `Алерт придёт при росте цены больше чем на ${b.threshold}%. Советуем отслеживать ${b.watch}.`;
+      note.textContent = b.note || `Алерт придёт при росте цены больше чем на ${b.threshold}%. Советуем отслеживать ${b.watch}.`;
     });
     const save = async (type, btn) => {
       const done = busyButton(btn, "Сохраняем…");
@@ -1301,7 +1329,7 @@
         await api("PUT", "/settings", { business_type: type, threshold_pct: BUSINESS[type].threshold,
           business_name: app.querySelector("#business-name").value });
         profile = null;
-        location.hash = "#/invoices";
+        location.hash = type === "supplier" ? "#/suppliers" : "#/invoices";
       } catch (err) {
         done();
         if (!err.silent) { errorEl.textContent = err.message; errorEl.hidden = false; }
@@ -1321,27 +1349,600 @@
     app.querySelector("#skip").addEventListener("click", (ev) => save("other", ev.currentTarget));
   }
 
-  // ------------------------------------------------------------ more: coming features and admin
+  // ------------------------------------------------------------ suppliers, orders, plans, assistant, savings, recipes
+
+  const isSupplier = () => (profile || {}).business_type === "supplier";
+  const homeFor = (p) => (p && p.business_type === "supplier" ? "#/suppliers" : "#/invoices");
+  const pct = (a, b) => (b ? (a - b) / b * 100 : 0);
+  const stat = (label, value, hint) => `<div class="card"><div class="small muted">${label}</div><div class="v">${value}</div><div class="small muted">${hint || ""}</div></div>`;
+
+  // A destructive button asks twice: the first press turns it into «Точно?», a second press within 4 s does it.
+  function confirmButton(btn, action) {
+    const label = btn.textContent;
+    let timer = null;
+    btn.addEventListener("click", () => {
+      if (timer) { clearTimeout(timer); timer = null; btn.textContent = label; action(btn); return; }
+      btn.textContent = "Точно?";
+      timer = setTimeout(() => { timer = null; btn.textContent = label; }, 4000);
+    });
+  }
+
+  // ---- directory (business side)
+
+  async function renderSuppliers(alive) {
+    if (isSupplier()) return renderCatalog(alive);
+    const list = (await api("GET", "/suppliers")).suppliers || [];
+    if (!alive()) return;
+    app.innerHTML = `
+      <div class="page-head"><h1>Поставщики</h1>
+        <p class="sub">Каталоги поставщиков, которые зарегистрированы в SupplyRadar. Откройте каталог, выберите товары и отправьте заявку.</p></div>
+      <div class="actionbar" style="margin:0 0 14px"><a class="button" href="#/orders">Мои заявки</a></div>
+      ${list.length ? `
+        <div class="card flush"><div class="toolbar"><div class="search"><input id="search" type="search" placeholder="Поставщик или товар" aria-label="Поиск поставщика"></div></div></div>
+        <ul class="tiles" id="sup-list"></ul>`
+        : `<div class="card">${emptyState("truck", "Каталогов пока нет",
+          "Как только поставщики добавят товары, они появятся здесь. Поставщик регистрируется сам и выбирает «Я поставщик».")}</div>`}`;
+    if (!list.length) return;
+    const ul = app.querySelector("#sup-list");
+    const draw = (q = "") => {
+      const shown = list.filter((s) => `${s.name} ${(s.sample || []).join(" ")}`.toLowerCase().includes(q));
+      ul.innerHTML = shown.length ? shown.map((s) => `
+        <li><a class="card tile" href="#/suppliers/${esc(s.supplier_id)}">
+          <span class="tile-icon" aria-hidden="true">${ICONS.truck}</span>
+          <span class="tile-text"><b>${esc(s.name)}</b>
+            <span class="small muted">${s.items_count} ${plural(s.items_count, "товар", "товара", "товаров")}: ${esc((s.sample || []).join(", "))}</span></span>
+        </a></li>`).join("") : `<li class="card">${emptyState("search", "Ничего не найдено", "Попробуйте другое название.")}</li>`;
+    };
+    app.querySelector("#search").addEventListener("input", (e) => draw(e.target.value.trim().toLowerCase()));
+    draw();
+  }
+
+  async function renderSupplier(id, alive) {
+    if (isSupplier()) { location.hash = "#/suppliers"; return; }
+    const s = await api("GET", `/suppliers/${encodeURIComponent(id)}`);
+    if (!alive()) return;
+    const compare = (i) => {
+      const own = i.yours && i.yours.best_price;
+      if (!own) return "";
+      const d = pct(i.price, own);
+      const text = d <= -0.5 ? `<span class="badge ok">дешевле вашей на ${Math.abs(d).toFixed(0)}%</span>`
+        : d >= 0.5 ? `<span class="badge warn">дороже вашей на ${d.toFixed(0)}%</span>` : '<span class="muted small">цена как у вас</span>';
+      return `<span class="cell-sub">${text} Ваша лучшая цена: ${money(own)}</span>`;
+    };
+    app.innerHTML = `
+      <a class="back" href="#/suppliers">← Поставщики</a>
+      <div class="page-head"><h1>${esc(s.name)}</h1>
+        <p class="sub">${s.contact ? `Контакты: ${esc(s.contact)}. ` : ""}Укажите количество и отправьте заявку: цена берётся из каталога.</p></div>
+      <form class="card flush" id="order-form" novalidate>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Товар</th><th class="num">Цена</th><th class="num">Количество</th></tr></thead>
+          <tbody>${s.items.map((i) => `
+            <tr>
+              <td>${esc(i.name)}${i.in_stock ? "" : ' <span class="badge bad">нет в наличии</span>'}${compare(i)}
+                ${i.min_order ? `<span class="cell-sub">Минимальный заказ: ${esc(i.min_order)} ${esc(i.unit)}</span>` : ""}</td>
+              <td class="num">${money(i.price)}<span class="cell-sub">за ${esc(i.unit)}</span></td>
+              <td class="num"><input class="qty" type="number" inputmode="decimal" min="0" step="any" data-id="${esc(i.item_id)}" data-price="${esc(i.price)}"
+                aria-label="Количество: ${esc(i.name)}" ${i.in_stock ? "" : "disabled"}></td>
+            </tr>`).join("")}</tbody></table></div>
+        <div class="order-foot">
+          <label for="note">Комментарий поставщику <span class="muted">(необязательно)</span></label>
+          <input id="note" maxlength="300" placeholder="Например: привезти к 8 утра">
+          <p class="field-error" id="order-error" role="alert" hidden></p>
+          <div class="actionbar"><button class="primary" type="submit">Отправить заявку</button>
+            <span>Итого: <b id="order-total">0 ₸</b></span></div>
+        </div>
+      </form>`;
+    const form = app.querySelector("#order-form");
+    const errorEl = app.querySelector("#order-error");
+    const lines = () => [...form.querySelectorAll("input.qty")].map((i) => ({ item_id: i.dataset.id, qty: toNum(i.value), price: Number(i.dataset.price) }))
+      .filter((l) => l.qty && l.qty > 0);
+    form.addEventListener("input", () => {
+      errorEl.hidden = true;
+      app.querySelector("#order-total").textContent = money(Math.round(lines().reduce((t, l) => t + l.qty * l.price, 0) * 100) / 100);
+    });
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const picked = lines();
+      if (!picked.length) {
+        errorEl.textContent = "Укажите количество хотя бы у одного товара";
+        errorEl.hidden = false;
+        form.querySelector("input.qty:not([disabled])")?.focus();
+        return;
+      }
+      const done = busyButton(form.querySelector("button[type=submit]"), "Отправляем…");
+      try {
+        await api("POST", "/orders", { supplier_id: id, note: form.querySelector("#note").value,
+          lines: picked.map(({ item_id, qty }) => ({ item_id, qty })) });
+        toast("Заявка отправлена поставщику");
+        location.hash = "#/orders";
+      } catch (err) {
+        done();
+        if (!err.silent) { errorEl.textContent = err.message; errorEl.hidden = false; }
+      }
+    });
+  }
+
+  // ---- catalog (supplier side)
+
+  async function renderCatalog(alive) {
+    const data = await api("GET", "/catalog");
+    if (!alive()) return;
+    const items = data.items || [];
+    app.innerHTML = `
+      <div class="page-head"><h1>Каталог</h1>
+        <p class="sub">Ваши товары и цены видят все бизнесы в SupplyRadar и могут отправить вам заявку.</p></div>
+      <form class="card" id="item-form" style="max-width:640px" novalidate>
+        <h2 id="item-form-title">Новый товар</h2>
+        <label for="i-name">Название</label>
+        <input id="i-name" maxlength="120" required placeholder="Молоко 3,2% 1 л">
+        <div class="form-row">
+          <div><label for="i-price">Цена, ₸</label><input id="i-price" type="number" inputmode="decimal" min="0" step="any" required></div>
+          <div><label for="i-unit">Единица</label><input id="i-unit" maxlength="20" value="шт"></div>
+          <div><label for="i-min">Мин. заказ <span class="muted">(необяз.)</span></label><input id="i-min" type="number" inputmode="decimal" min="0" step="any"></div>
+        </div>
+        <p class="field-error" id="item-error" role="alert" hidden></p>
+        <div class="actionbar"><button class="primary" type="submit" id="item-save">Добавить</button>
+          <button type="button" id="item-cancel" hidden>Отменить изменение</button></div>
+      </form>
+      <div class="card flush">
+        <div class="toolbar"><h2 style="margin:0">Товары</h2>
+          <span class="small muted">${items.length} из ${data.limit}${items.length >= data.limit && data.plan === "free" ? ' · <a href="#/subscription">Больше позиций на тарифе Pro</a>' : ""}</span>
+          <label class="button export">Загрузить прайс (CSV)<input id="import" class="sr-only" type="file" accept=".csv,.txt,text/csv,text/plain"></label></div>
+        ${items.length ? `<div class="table-wrap"><table>
+          <thead><tr><th>Товар</th><th class="num">Цена</th><th class="num">Действия</th></tr></thead>
+          <tbody>${items.map((i) => `
+            <tr data-id="${esc(i.item_id)}">
+              <td>${esc(i.name)}${i.in_stock ? "" : ' <span class="badge bad">нет в наличии</span>'}
+                <span class="cell-sub">за ${esc(i.unit)}${i.min_order ? `, от ${esc(i.min_order)}` : ""}</span></td>
+              <td class="num">${money(i.price)}</td>
+              <td class="num"><div class="row-actions">
+                <button type="button" data-edit>Изменить</button>
+                <button type="button" data-stock aria-pressed="${i.in_stock}">${i.in_stock ? "Убрать из наличия" : "Вернуть в наличие"}</button>
+                <button type="button" data-delete>Удалить</button></div></td>
+            </tr>`).join("")}</tbody></table></div>`
+          : emptyState("box", "Каталог пуст", "Добавьте первый товар выше или загрузите прайс из CSV: «Название;Единица;Цена» в каждой строке.")}
+      </div>`;
+    const form = app.querySelector("#item-form");
+    const errorEl = app.querySelector("#item-error");
+    let editing = null;
+    const setMode = (item) => {
+      editing = item ? item.item_id : null;
+      form.querySelector("#item-form-title").textContent = item ? "Изменить товар" : "Новый товар";
+      form.querySelector("#item-save").textContent = item ? "Сохранить" : "Добавить";
+      form.querySelector("#item-cancel").hidden = !item;
+      form.querySelector("#i-name").value = item ? item.name : "";
+      form.querySelector("#i-price").value = item ? item.price : "";
+      form.querySelector("#i-unit").value = item ? item.unit : "шт";
+      form.querySelector("#i-min").value = item && item.min_order ? item.min_order : "";
+      errorEl.hidden = true;
+    };
+    form.querySelector("#item-cancel").addEventListener("click", () => setMode(null));
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const price = toNum(form.querySelector("#i-price").value);
+      const name = form.querySelector("#i-name").value.trim();
+      const fail = (msg, el) => { errorEl.textContent = msg; errorEl.hidden = false; el.focus(); };
+      if (!name) return fail("Введите название товара", form.querySelector("#i-name"));
+      if (price == null || price <= 0) return fail("Укажите цену больше нуля", form.querySelector("#i-price"));
+      const body = { name, price, unit: form.querySelector("#i-unit").value.trim() || "шт", min_order: toNum(form.querySelector("#i-min").value) };
+      const done = busyButton(form.querySelector("#item-save"), "Сохраняем…");
+      try {
+        if (editing) await api("PUT", `/catalog/${editing}`, body); else await api("POST", "/catalog", body);
+        toast(editing ? "Товар обновлён" : "Товар добавлен");
+        reload();
+      } catch (err) {
+        done();
+        if (!err.silent) fail(err.message, form.querySelector("#i-name"));
+      }
+    });
+    app.querySelectorAll("tr[data-id]").forEach((tr) => {
+      const item = items.find((i) => i.item_id === tr.dataset.id);
+      tr.querySelector("[data-edit]").addEventListener("click", () => { setMode(item); form.scrollIntoView({ block: "center" }); form.querySelector("#i-name").focus(); });
+      tr.querySelector("[data-stock]").addEventListener("click", async () => {
+        try { await api("PUT", `/catalog/${item.item_id}`, { in_stock: !item.in_stock }); reload(); } catch (err) { if (!err.silent) toast(err.message, true); }
+      });
+      confirmButton(tr.querySelector("[data-delete]"), async () => {
+        try { await api("DELETE", `/catalog/${item.item_id}`); toast("Товар удалён"); reload(); } catch (err) { if (!err.silent) toast(err.message, true); }
+      });
+    });
+    // Price list import: one product per line, «Название;Единица;Цена» (or just «Название;Цена»), as Excel saves CSV.
+    app.querySelector("#import").addEventListener("change", async (ev) => {
+      const file = ev.target.files[0];
+      ev.target.value = "";
+      if (!file) return;
+      const rows = (await file.text()).replace(/^﻿/, "").split(/\r?\n/).map((l) => l.split(/;|\t/)).slice(0, 200)
+        .map((c) => (c.length === 1 ? c[0].split(",") : c).map((x) => x.trim().replace(/^"|"$/g, "")))
+        .map((c) => ({ name: c[0], unit: c.length > 2 ? c[1] : "шт", price: toNum(c[c.length - 1]) }))
+        .filter((r) => r.name && r.price > 0);
+      if (!rows.length) { toast("В файле не нашлось строк «Название;Единица;Цена»", true); return; }
+      let added = 0;
+      try {
+        for (const r of rows) { await api("POST", "/catalog", r); added++; }
+        toast(`Добавлено товаров: ${added}`);
+      } catch (err) {
+        if (!err.silent) toast(`Добавлено ${added} из ${rows.length}. ${err.message}`, true);
+      }
+      reload();
+    });
+  }
+
+  // ---- orders (both sides)
+
+  const ORDER_STATUS = {
+    new: ["Новая", "info"], accepted: ["Принята", "ok"], rejected: ["Отклонена", "bad"],
+    delivered: ["Доставлена", "ok"], cancelled: ["Отменена", "warn"],
+  };
+  Object.assign(STATUS, ORDER_STATUS);
+
+  async function renderOrders(alive) {
+    const orders = (await api("GET", "/orders")).orders || [];
+    if (!alive()) return;
+    const seller = isSupplier();
+    const actions = (o) => {
+      if (seller && o.status === "new") return [["accepted", "Принять", "primary"], ["rejected", "Отклонить", ""]];
+      if (seller && o.status === "accepted") return [["delivered", "Отметить доставленной", "primary"], ["rejected", "Отменить", ""]];
+      if (!seller && o.status === "new") return [["cancelled", "Отменить заявку", ""]];
+      return [];
+    };
+    app.innerHTML = `
+      <div class="page-head"><h1>Заявки</h1>
+        <p class="sub">${seller ? "Заявки от бизнеса. Принятую заявку отметьте доставленной." : "Ваши заявки поставщикам и их статусы."}</p></div>
+      ${orders.length ? orders.map((o) => `
+        <article class="card order" data-id="${esc(o.order_id)}">
+          <div class="order-head">
+            <div><div class="title">${esc(seller ? o.buyer_name : o.supplier_name)}</div>
+              <div class="small muted">${fmtDate(o.created_at)}${seller && o.buyer_contact ? `, контакты: ${esc(o.buyer_contact)}` : ""}</div></div>
+            <div>${badge(o.status)}<div class="order-total">${money(o.total)}</div></div>
+          </div>
+          ${o.note ? `<p class="small">Комментарий: ${esc(o.note)}</p>` : ""}
+          <details><summary>Состав заявки (${o.lines.length})</summary>
+            <table><thead><tr><th>Товар</th><th class="num">Кол-во</th><th class="num">Сумма</th></tr></thead>
+            <tbody>${o.lines.map((l) => `<tr><td>${esc(l.name)}<span class="cell-sub">${money(l.price)} за ${esc(l.unit)}</span></td>
+              <td class="num">${esc(l.qty)}</td><td class="num">${money(l.total)}</td></tr>`).join("")}</tbody></table></details>
+          <div class="actionbar">${actions(o).map(([s, label, cls]) => `<button type="button" class="${cls}" data-status="${s}">${label}</button>`).join("")}</div>
+        </article>`).join("")
+        : `<div class="card">${emptyState("doc", "Заявок пока нет", seller
+          ? "Когда бизнес отправит заявку, она появится здесь."
+          : "Откройте каталог поставщика, выберите товары и отправьте первую заявку.",
+        seller ? "" : '<a class="button primary" href="#/suppliers">К поставщикам</a>')}</div>`}`;
+    app.querySelectorAll(".order").forEach((card) => card.querySelectorAll("[data-status]").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        const done = busyButton(btn, "Сохраняем…");
+        try {
+          await api("PUT", `/orders/${card.dataset.id}`, { status: btn.dataset.status });
+          toast("Статус заявки обновлён");
+          reload();
+        } catch (err) { done(); if (!err.silent) toast(err.message, true); }
+      })));
+  }
+
+  // ---- subscription (demo payment)
+
+  const PLAN_FEATURES = {
+    free: ["Накладные, сверка сумм и алерты на email", "Дашборд переплат и экономия", "Заявки поставщикам", "До 3 рецептов с себестоимостью"],
+    pro: ["Всё из бесплатного", "AI-помощник по вашим закупкам, до 30 вопросов в день", "Рецепты без ограничений"],
+    supplier_free: ["Каталог до 20 товаров", "Заявки от бизнеса"],
+    supplier_pro: ["Каталог до 200 товаров", "Всё из бесплатного"],
+  };
+
+  async function renderSubscription(alive) {
+    const sub = await api("GET", "/subscription");
+    if (!alive()) return;
+    const features = (p) => PLAN_FEATURES[p.id === "free" && sub.role === "supplier" ? "supplier_free" : p.id] || [];
+    const until = sub.plan_until ? fmtDate(sub.plan_until) : "";
+    app.innerHTML = `
+      <div class="page-head"><h1>Подписка</h1>
+        <p class="sub">Сейчас оплата демонстрационная: деньги не списываются, данные карты не нужны.</p></div>
+      <div class="plans">
+        ${sub.plans.map((p) => `
+          <article class="card plan${p.id === sub.plan ? " current" : ""}" aria-labelledby="plan-${p.id}">
+            <h2 id="plan-${p.id}">${esc(p.name)} ${p.id === sub.plan ? '<span class="badge ok">Ваш тариф</span>' : ""}</h2>
+            <div class="plan-price">${p.price ? `${money(p.price)} <span class="small muted">в месяц</span>` : "0 ₸"}</div>
+            <ul class="plain">${features(p).map((f) => `<li>${f}</li>`).join("")}</ul>
+            ${p.id === sub.plan ? `<p class="small muted">${until ? `Действует до ${until}` : "Включён всегда"}</p>`
+              : p.price ? `<button type="button" class="primary" data-plan="${p.id}">Подключить ${esc(p.name)}</button>`
+              : '<button type="button" data-plan="free">Вернуться на бесплатный</button>'}
+          </article>`).join("")}
+        ${sub.role === "business" ? `
+          <article class="card plan soon-plan" aria-labelledby="plan-business">
+            <h2 id="plan-business">Business <span class="badge soon">В разработке</span></h2>
+            <div class="plan-price"><span class="small muted">цена будет позже</span></div>
+            <ul class="plain"><li>Несколько точек и сотрудников в одном аккаунте</li><li>Живой менеджер по закупкам</li><li>Выгрузка в 1С</li></ul>
+          </article>` : ""}
+      </div>
+      <div class="card" id="demo-pay" tabindex="-1" hidden style="max-width:640px">
+        <h2 id="demo-title"></h2>
+        <p>Это учебный проект: оплата демонстрационная. Деньги не списываются, карту вводить не нужно. Тариф включится на 30 дней.</p>
+        <p class="field-error" id="pay-error" role="alert" hidden></p>
+        <div class="actionbar"><button type="button" class="primary" id="pay-go"></button><button type="button" id="pay-cancel">Отмена</button></div>
+      </div>
+      ${sub.payments.length ? `<div class="card flush"><div class="toolbar"><h2 style="margin:0">История платежей</h2></div>
+        <table><thead><tr><th>Дата</th><th>Тариф</th><th class="num">Сумма</th></tr></thead>
+        <tbody>${sub.payments.map((p) => `<tr><td>${fmtDate(p.created_at)}</td><td>${esc((sub.plans.find((x) => x.id === p.plan) || {}).name || p.plan)} <span class="badge soon">демо</span></td>
+          <td class="num">${money(p.amount)}</td></tr>`).join("")}</tbody></table></div>` : ""}`;
+    const panel = app.querySelector("#demo-pay");
+    const errorEl = app.querySelector("#pay-error");
+    let chosen = null;
+    const choose = async (id) => {
+      const plan = sub.plans.find((p) => p.id === id);
+      if (!plan.price) { // going back to free needs no payment
+        try { await api("POST", "/subscription", { plan: id }); profile = null; toast("Вы на бесплатном тарифе"); reload(); } catch (err) { if (!err.silent) toast(err.message, true); }
+        return;
+      }
+      chosen = id;
+      panel.hidden = false;
+      errorEl.hidden = true;
+      app.querySelector("#demo-title").textContent = `Демо-оплата: ${plan.name}, ${money(plan.price)}`;
+      app.querySelector("#pay-go").textContent = `Включить ${plan.name} на 30 дней`;
+      panel.focus();
+    };
+    app.querySelectorAll("[data-plan]").forEach((b) => b.addEventListener("click", () => choose(b.dataset.plan)));
+    app.querySelector("#pay-cancel").addEventListener("click", () => { panel.hidden = true; });
+    app.querySelector("#pay-go").addEventListener("click", async (ev) => {
+      const done = busyButton(ev.currentTarget, "Подключаем…");
+      try {
+        const r = await api("POST", "/subscription", { plan: chosen, demo: true });
+        profile = null;
+        toast(`Тариф включён до ${fmtDate(r.plan_until)}`);
+        reload();
+      } catch (err) { done(); if (!err.silent) { errorEl.textContent = err.message; errorEl.hidden = false; } }
+    });
+  }
+
+  // ---- assistant
+
+  const chat = [];
+  const QUESTIONS = ["Где я переплачиваю больше всего?", "Что подорожало за последний месяц?", "У кого из поставщиков дешевле?", "Как снизить расходы на закупки?"];
+
+  async function renderAssistant() {
+    const p = await loadProfile();
+    if (p.plan !== "pro") {
+      app.innerHTML = `
+        <a class="back" href="#/more">← Ещё</a>
+        <div class="page-head"><h1>AI-помощник</h1></div>
+        <div class="card" style="max-width:640px">${emptyState("chat", "Помощник входит в тариф Pro",
+          "Он отвечает на вопросы по вашим накладным: где вы переплатили, что подорожало, у кого дешевле. Подключить Pro можно в демо-режиме, деньги не списываются.",
+          '<a class="button primary" href="#/subscription">Посмотреть тарифы</a>')}</div>`;
+      return;
+    }
+    app.innerHTML = `
+      <a class="back" href="#/more">← Ещё</a>
+      <div class="page-head"><h1>AI-помощник</h1>
+        <p class="sub">Отвечает по данным ваших накладных за последние месяцы. Проверяйте важные цифры в разделах «Товары» и «Переплаты».</p></div>
+      <div class="card chat-card">
+        <div id="log" class="chat" role="log" aria-live="polite" aria-label="Диалог с помощником"></div>
+        <div class="chips" role="group" aria-label="Примеры вопросов">${QUESTIONS.map((q) => `<button type="button" class="chip" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>
+        <form id="ask" novalidate>
+          <label for="question">Ваш вопрос</label>
+          <textarea id="question" rows="2" maxlength="500" placeholder="Например: сколько я переплатил за молоко?"></textarea>
+          <p class="field-error" id="ask-error" role="alert" hidden></p>
+          <div class="actionbar"><button class="primary" type="submit">Спросить</button><span class="small muted" id="remaining"></span></div>
+        </form>
+      </div>`;
+    const logEl = app.querySelector("#log");
+    const question = app.querySelector("#question");
+    const errorEl = app.querySelector("#ask-error");
+    const paint = () => {
+      logEl.innerHTML = chat.length ? chat.map((m) => `<div class="bubble ${m.role}"><span class="sr-only">${m.role === "user" ? "Вы: " : "Помощник: "}</span>${esc(m.text)}</div>`).join("")
+        : '<p class="muted small">Задайте вопрос или выберите пример ниже.</p>';
+      logEl.scrollTop = logEl.scrollHeight;
+    };
+    paint();
+    const ask = async (text) => {
+      errorEl.hidden = true;
+      if (!text) { errorEl.textContent = "Введите вопрос"; errorEl.hidden = false; question.focus(); return; }
+      const btn = app.querySelector("#ask button[type=submit]");
+      chat.push({ role: "user", text });
+      paint();
+      question.value = "";
+      const done = busyButton(btn, "Думаю…");
+      try {
+        const r = await api("POST", "/assistant", { question: text });
+        chat.push({ role: "bot", text: r.answer });
+        app.querySelector("#remaining").textContent = `Осталось вопросов сегодня: ${r.remaining}`;
+      } catch (err) {
+        chat.pop();
+        question.value = text;
+        if (!err.silent) { errorEl.textContent = err.message; errorEl.hidden = false; }
+      }
+      done();
+      paint();
+    };
+    app.querySelector("#ask").addEventListener("submit", (ev) => { ev.preventDefault(); ask(question.value.trim()); });
+    app.querySelectorAll("[data-q]").forEach((b) => b.addEventListener("click", () => ask(b.dataset.q)));
+  }
+
+  // ---- savings dashboard
+
+  async function renderSavings(alive) {
+    const d = await api("GET", "/savings");
+    if (!alive()) return;
+    const empty = !d.spent;
+    app.innerHTML = `
+      <a class="back" href="#/more">← Ещё</a>
+      <div class="page-head"><h1>Переплаты</h1>
+        <p class="sub">Сколько вы заплатили за ${d.period_days} дней сверх лучшей цены среди ваших поставщиков.</p></div>
+      <div class="facts four">
+        ${stat("Закупок", money(d.spent), `за ${d.period_days} дней`)}
+        ${stat("Переплата", money(d.overpay), d.spent ? `${String(d.overpay_pct).replace(".", ",")}% от закупок` : "нет данных")}
+        ${stat("Рост цен", money(d.price_growth), "по алертам за период")}
+        ${stat("Можно сэкономить", money(d.overpay), "в месяц при лучшей цене")}
+      </div>
+      ${empty ? `<div class="card">${emptyState("chart", "Пока нет закупок за этот период",
+        "Загрузите накладные: переплаты считаются по товарам, которые вы покупали у разных поставщиков.",
+        '<a class="button primary" href="#/invoices">Загрузить накладную</a>')}</div>`
+        : `<div class="card flush"><div class="toolbar"><h2 style="margin:0">Где переплачено</h2>
+            ${d.items.length ? '<button type="button" class="export" id="export">Скачать в Excel</button>' : ""}</div>
+          ${d.items.length ? `<div class="table-wrap"><table class="responsive">
+            <thead><tr><th>Товар</th><th class="num">Куплено</th><th class="num">Переплата</th><th class="num">Лучшая цена</th></tr></thead>
+            <tbody>${d.items.map((i) => `<tr class="clickable" data-key="${esc(i.product_key)}">
+              <td data-m="wide"><a class="row-link" href="#/products/${encodeURIComponent(i.product_key)}">${esc(i.name)}</a>
+                <span class="cell-sub">Платили в среднем ${money(i.paid_avg)}</span></td>
+              <td class="num" data-m="sub">${esc(i.qty)} ${esc(i.unit || "")}</td>
+              <td class="num"><b>${money(i.overpay)}</b></td>
+              <td class="num" data-m="hide">${money(i.best_price)}<span class="cell-sub">${esc(i.best_supplier || "")}</span></td></tr>`).join("")}</tbody></table></div>`
+            : `<p class="muted" style="padding:16px 22px;margin:0">Переплат нет: вы покупали по лучшим ценам. Так держать.</p>`}</div>
+          ${d.by_supplier.length ? `<div class="card flush" style="margin-top:16px"><div class="toolbar"><h2 style="margin:0">Переплата по поставщикам</h2></div>
+            <table><thead><tr><th>Поставщик</th><th class="num">Переплата</th></tr></thead>
+            <tbody>${d.by_supplier.map((s) => `<tr><td>${esc(s.supplier)}</td><td class="num">${money(s.overpay)}</td></tr>`).join("")}</tbody></table></div>` : ""}
+          <div class="actionbar" style="margin-top:16px"><a class="button" href="#/suppliers">Найти поставщика дешевле</a><a class="button" href="#/assistant">Спросить помощника</a></div>`}`;
+    app.querySelectorAll("tr[data-key]").forEach((tr) =>
+      tr.addEventListener("click", (e) => { if (!e.target.closest("a")) location.hash = `#/products/${encodeURIComponent(tr.dataset.key)}`; }));
+    const exp = app.querySelector("#export");
+    if (exp) exp.addEventListener("click", () => downloadCsv(`pereplaty-${today()}.csv`,
+      ["Товар", "Куплено", "Единица", "Платили в среднем, ₸", "Лучшая цена, ₸", "Лучший поставщик", "Переплата, ₸"],
+      d.items.map((i) => [i.name, i.qty, i.unit || "", i.paid_avg, i.best_price, i.best_supplier || "", i.overpay])));
+  }
+
+  // ---- recipes: cost of a dish
+
+  async function renderRecipes(alive) {
+    const data = await api("GET", "/recipes");
+    if (!alive()) return;
+    const { recipes, products } = data;
+    const byKey = Object.fromEntries(products.map((p) => [p.product_key, p]));
+    const margin = (r) => {
+      if (r.margin_pct == null) return "";
+      const kind = r.margin_pct >= 60 ? "ok" : r.margin_pct >= 30 ? "warn" : "bad";
+      return `<span class="badge ${kind}">Маржа ${String(r.margin_pct).replace(".", ",")}%</span>`;
+    };
+    app.innerHTML = `
+      <a class="back" href="#/more">← Ещё</a>
+      <div class="page-head"><h1>Себестоимость блюд</h1>
+        <p class="sub">Составьте блюдо из товаров, которые вы покупаете. Себестоимость пересчитывается сама, когда меняются цены в накладных.</p></div>
+      <div class="actionbar" style="margin:0 0 14px"><button type="button" class="primary" id="new-recipe">Добавить блюдо</button>
+        <span class="small on-dark">${recipes.length} из ${data.limit}${recipes.length >= data.limit && data.limit < 100 ? ' · <a href="#/subscription">Без ограничений на тарифе Pro</a>' : ""}</span></div>
+      <form class="card" id="recipe-form" hidden novalidate>
+        <h2 id="recipe-title">Новое блюдо</h2>
+        <label for="r-name">Название</label>
+        <input id="r-name" maxlength="80" required placeholder="Латте">
+        <div class="form-row">
+          <div><label for="r-portions">Сколько порций выходит</label><input id="r-portions" type="number" inputmode="numeric" min="1" step="1" value="1"></div>
+          <div><label for="r-price">Цена в меню, ₸ <span class="muted">(необяз.)</span></label><input id="r-price" type="number" inputmode="decimal" min="0" step="any"></div>
+        </div>
+        <fieldset class="ingredients"><legend>Ингредиенты на всё блюдо</legend>
+          <div id="ing-rows"></div>
+          <button type="button" id="add-ing">Добавить ингредиент</button>
+          <p class="field-hint">Количество в единицах товара из накладной: штуки, килограммы или литры.</p>
+        </fieldset>
+        <p class="recipe-sum" id="recipe-sum" aria-live="polite"></p>
+        <p class="field-error" id="recipe-error" role="alert" hidden></p>
+        <div class="actionbar"><button class="primary" type="submit">Сохранить</button><button type="button" id="recipe-cancel">Отмена</button></div>
+      </form>
+      ${recipes.length ? recipes.map((r) => `
+        <article class="card recipe" data-id="${esc(r.recipe_id)}">
+          <div class="order-head">
+            <div><div class="title">${esc(r.name)}</div><div class="small muted">${esc(r.portions)} ${plural(r.portions, "порция", "порции", "порций")}</div></div>
+            <div>${margin(r)}</div>
+          </div>
+          <div class="recipe-facts">
+            <div><span class="small muted">Себестоимость порции</span><b>${money(r.cost_per_portion)}</b></div>
+            <div><span class="small muted">Цена в меню</span><b>${money(r.menu_price)}</b></div>
+            <div><span class="small muted">Всё блюдо</span><b>${money(r.total_cost)}</b></div>
+          </div>
+          ${r.missing ? `<p class="small notice-warn">Нет цены у ${r.missing} ${plural(r.missing, "ингредиента", "ингредиентов", "ингредиентов")}: себестоимость неполная. Цены появятся после накладных с этими товарами.</p>` : ""}
+          <details><summary>Состав</summary>
+            <table><thead><tr><th>Ингредиент</th><th class="num">Кол-во</th><th class="num">Цена</th><th class="num">Стоимость</th></tr></thead>
+            <tbody>${r.lines.map((l) => `<tr><td>${esc(l.name)}</td><td class="num">${esc(l.qty)} ${esc(l.unit || "")}</td>
+              <td class="num">${money(l.price)}</td><td class="num">${money(l.cost)}</td></tr>`).join("")}</tbody></table></details>
+          <div class="actionbar"><button type="button" data-edit>Изменить</button><button type="button" data-delete>Удалить</button></div>
+        </article>`).join("")
+        : `<div class="card">${emptyState("doc", "Блюд пока нет",
+          products.length ? "Нажмите «Добавить блюдо» и выберите ингредиенты из своих товаров."
+            : "Сначала загрузите накладные: ингредиенты берутся из товаров, которые вы покупали.",
+          products.length ? "" : '<a class="button primary" href="#/invoices">Загрузить накладную</a>')}</div>`}`;
+
+    const form = app.querySelector("#recipe-form");
+    const rows = form.querySelector("#ing-rows");
+    const errorEl = form.querySelector("#recipe-error");
+    let editing = null;
+    let seq = 0;
+    const addRow = (key, qty) => {
+      const n = ++seq;
+      const row = document.createElement("div");
+      row.className = "ing-row";
+      row.innerHTML = `
+        <label class="sr-only" for="ing-p-${n}">Товар</label>
+        <select id="ing-p-${n}">${products.map((p) => `<option value="${esc(p.product_key)}"${p.product_key === key ? " selected" : ""}>${esc(p.name)} (${money(p.last_price)})</option>`).join("")}</select>
+        <label class="sr-only" for="ing-q-${n}">Количество</label>
+        <input id="ing-q-${n}" type="number" inputmode="decimal" min="0" step="any" value="${esc(qty ?? 1)}">
+        <button type="button" class="link" data-remove>Убрать</button>`;
+      rows.append(row);
+      row.querySelector("[data-remove]").addEventListener("click", () => { row.remove(); sum(); });
+    };
+    const read = () => [...rows.querySelectorAll(".ing-row")].map((r) => ({ product_key: r.querySelector("select").value, qty: toNum(r.querySelector("input").value) }));
+    const sum = () => {
+      const portions = toNum(form.querySelector("#r-portions").value) || 1;
+      const total = read().reduce((t, i) => t + ((byKey[i.product_key] || {}).last_price || 0) * (i.qty || 0), 0);
+      const menu = toNum(form.querySelector("#r-price").value);
+      const per = total / portions;
+      form.querySelector("#recipe-sum").textContent = `Себестоимость порции: ${money(Math.round(per * 100) / 100)}`
+        + (menu ? `, маржа ${((menu - per) / menu * 100).toFixed(0)}%` : "");
+    };
+    const open = (r) => {
+      editing = r ? r.recipe_id : null;
+      form.hidden = false;
+      form.querySelector("#recipe-title").textContent = r ? "Изменить блюдо" : "Новое блюдо";
+      form.querySelector("#r-name").value = r ? r.name : "";
+      form.querySelector("#r-portions").value = r ? r.portions : 1;
+      form.querySelector("#r-price").value = r && r.menu_price ? r.menu_price : "";
+      rows.innerHTML = "";
+      (r ? r.lines : [{ product_key: products[0] && products[0].product_key, qty: 1 }]).forEach((l) => addRow(l.product_key, l.qty));
+      errorEl.hidden = true;
+      sum();
+      form.scrollIntoView({ block: "start" });
+      form.querySelector("#r-name").focus();
+    };
+    app.querySelector("#new-recipe").addEventListener("click", () => {
+      if (!products.length) { toast("Сначала загрузите накладные: нужны товары для ингредиентов", true); return; }
+      open(null);
+    });
+    form.querySelector("#recipe-cancel").addEventListener("click", () => { form.hidden = true; });
+    form.querySelector("#add-ing").addEventListener("click", () => { addRow(products[0].product_key, 1); sum(); });
+    form.addEventListener("input", sum);
+    form.addEventListener("change", sum);
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const fail = (msg, el) => { errorEl.textContent = msg; errorEl.hidden = false; el.focus(); };
+      const name = form.querySelector("#r-name").value.trim();
+      const ingredients = read();
+      if (!name) return fail("Введите название блюда", form.querySelector("#r-name"));
+      if (!ingredients.length) return fail("Добавьте хотя бы один ингредиент", form.querySelector("#add-ing"));
+      if (ingredients.some((i) => !i.qty || i.qty <= 0)) return fail("У каждого ингредиента должно быть количество больше нуля", rows.querySelector("input"));
+      const body = { name, ingredients, portions: toNum(form.querySelector("#r-portions").value) || 1, menu_price: toNum(form.querySelector("#r-price").value) };
+      const done = busyButton(form.querySelector("button[type=submit]"), "Сохраняем…");
+      try {
+        if (editing) await api("PUT", `/recipes/${editing}`, body); else await api("POST", "/recipes", body);
+        toast("Блюдо сохранено");
+        reload();
+      } catch (err) {
+        done();
+        if (!err.silent) fail(err.message, form.querySelector("#r-name"));
+      }
+    });
+    app.querySelectorAll(".recipe").forEach((card) => {
+      const r = recipes.find((x) => x.recipe_id === card.dataset.id);
+      card.querySelector("[data-edit]").addEventListener("click", () => open(r));
+      confirmButton(card.querySelector("[data-delete]"), async () => {
+        try { await api("DELETE", `/recipes/${r.recipe_id}`); toast("Блюдо удалено"); reload(); } catch (err) { if (!err.silent) toast(err.message, true); }
+      });
+    });
+  }
+
+  // ------------------------------------------------------------ more: the menu of extra sections
 
   const SOON = {
-    suppliers: { icon: "truck", title: "Поставщики", lead: "Каталог поставщиков с актуальными прайсами.",
-      points: ["Поставщик ведёт свой кабинет и сам обновляет цены на товары",
-        "Вы ищете товар и сравниваете предложения с ценами из своих накладных",
-        "Заявка поставщику отправляется в один клик"] },
-    assistant: { icon: "chat", title: "AI-помощник", lead: "Персональный помощник по закупкам.",
-      points: ["Отвечает на вопросы по вашим накладным: «сколько я переплатил за молоко в этом месяце?»",
-        "Подсказывает, у кого и когда выгоднее купить",
-        "Готовит письмо поставщику с просьбой вернуть прежнюю цену"] },
-    subscription: { icon: "star", title: "Подписка", lead: "Тарифы для бизнеса любого размера.",
-      points: ["Бесплатный тариф: накладные, сверка цен и алерты, как сейчас",
-        "Pro: AI-помощник, отчёты о переплатах и выгрузки без ограничений",
-        "Business: несколько точек и сотрудников в одном аккаунте"],
-      note: "Оплата пока не подключена: сейчас все функции сервиса бесплатны." },
+    telegram: { icon: "chat", title: "Telegram-бот", lead: "Алерты и сводка прямо в Telegram.",
+      points: ["Сообщение в Telegram в день, когда поставщик поднял цену",
+        "Фото накладной можно отправить боту вместо загрузки на сайте",
+        "Недельная сводка переплат в одном сообщении"],
+      note: "Для бота нужен токен от @BotFather, поэтому раздел пока не подключён." },
   };
   const soonBadge = '<span class="badge soon">В разработке</span>';
 
   async function renderMore() {
-    const tile = (href, icon, title, text, mark) => `
+    const p = profile || {};
+    const tile = (href, icon, title, text, mark = "") => `
       <li><a class="card tile" href="${href}">
         <span class="tile-icon" aria-hidden="true">${ICONS[icon]}</span>
         <span class="tile-text"><b>${title}</b><span class="small muted">${text}</span></span>
@@ -1349,10 +1950,16 @@
       </a></li>`;
     app.innerHTML = `
       <div class="page-head"><h1>Ещё</h1>
-        <p class="sub">Новые разделы SupplyRadar. Те, что отмечены «В разработке», пока только описаны.</p></div>
+        <p class="sub">Поставщики, заявки, переплаты, рецепты и помощник.</p></div>
       <ul class="tiles">
+        ${tile("#/suppliers", "truck", "Поставщики", "Каталоги и заявки в один клик")}
+        ${tile("#/orders", "doc", "Мои заявки", "Статусы заявок поставщикам")}
+        ${tile("#/savings", "chart", "Переплаты", "Сколько можно сэкономить на закупках")}
+        ${tile("#/recipes", "cup", "Себестоимость блюд", "Рецепты и маржа по текущим ценам")}
+        ${tile("#/assistant", "chat", "AI-помощник", "Отвечает по вашим накладным", p.plan === "pro" ? "" : '<span class="badge pro">Pro</span>')}
+        ${tile("#/subscription", "star", "Подписка", p.plan === "pro" ? "Тариф Pro" : "Бесплатный тариф, есть Pro")}
         ${Object.entries(SOON).map(([k, f]) => tile(`#/${k}`, f.icon, f.title, f.lead, soonBadge)).join("")}
-        ${(profile || {}).is_admin ? tile("#/admin", "shield", "Админ-панель", "Сводка по всему сервису. Видна только администратору.", "") : ""}
+        ${p.is_admin ? tile("#/admin", "shield", "Админ-панель", "Сводка по всему сервису. Видна только администратору.") : ""}
       </ul>`;
   }
 
@@ -1366,9 +1973,9 @@
         <p>${soonBadge}</p>
         <p class="lead-text">${f.lead}</p>
         <h2>Что здесь появится</h2>
-        <ul class="plain">${f.points.map((p) => `<li>${p}</li>`).join("")}</ul>
-        <p class="small muted">${f.note || "Раздел ещё не работает. Мы сообщим на email из настроек, когда он откроется."}</p>
-        <div class="actionbar"><a class="button" href="#/invoices">К накладным</a></div>
+        <ul class="plain">${f.points.map((x) => `<li>${x}</li>`).join("")}</ul>
+        <p class="small muted">${f.note}</p>
+        <div class="actionbar"><a class="button" href="#/more">Назад</a></div>
       </div>`;
   }
 
@@ -1397,10 +2004,15 @@
         ${fact("Накладные", d.invoices, "за всё время")}
         ${fact("За 7 дней", d.invoices_week, "новых накладных")}
         ${fact("Алерты", d.alerts, "о росте цен")}
+        ${fact("Поставщики", d.suppliers || 0, "аккаунтов с каталогом")}
+        ${fact("Заявки", d.orders || 0, "поставщикам, всего")}
       </div>
       <div class="grid-2">
         ${count("Накладные по статусам", Object.entries(d.by_status || {}).map(([k, n]) => [badge(k), n]))}
         ${count("Аккаунты по типу бизнеса", Object.entries(d.by_business_type || {}).map(([k, n]) => [esc(BUSINESS[k] ? BUSINESS[k].label : "Не выбран"), n]))}
+      </div>
+      <div class="grid-2" style="margin-top:16px">
+        ${count("Аккаунты по тарифам (демо-оплата)", Object.entries(d.by_plan || {}).map(([k, n]) => [esc({ free: "Бесплатный", pro: "Pro", supplier_pro: "Поставщик Pro" }[k] || k), n]))}
       </div>
       <div class="card flush" style="margin-top:16px"><div class="toolbar"><h2 style="margin:0">Последние накладные</h2></div>
         ${(d.latest || []).length ? `<div class="table-wrap"><table class="responsive">

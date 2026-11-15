@@ -31,7 +31,7 @@ os.environ.setdefault("ADMIN_EMAILS", "owner@example.com")  # the demo account s
 import api  # noqa: E402
 import validate  # noqa: E402
 from conftest import MemoryStore  # noqa: E402
-from supplyradar import aws, config, db  # noqa: E402
+from supplyradar import aws, config, db, gemini  # noqa: E402
 
 PORT = int(os.environ.get("PORT", "8765"))
 BASE = f"http://localhost:{PORT}"
@@ -173,6 +173,9 @@ class Handler(SimpleHTTPRequestHandler):
         else:
             super().do_GET()
 
+    def do_DELETE(self):
+        self.api("DELETE", urllib.parse.urlparse(self.path).path)
+
     def do_PUT(self):
         self.api("PUT", urllib.parse.urlparse(self.path).path)
 
@@ -245,7 +248,13 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_json(404, {"message": "Not Found"})
 
 
+def fake_assistant(parts, **kwargs):
+    """No network in the local stand: the assistant answers from a canned text."""
+    return "Локальный стенд: здесь был бы ответ AI-помощника по вашим накладным."
+
+
 def main():
+    gemini.generate = fake_assistant
     db._store = MemoryStore()
     aws._clients.update(s3=FakeS3(), sqs=FakeSQS(), sns=FakeSNS())
     config.ALERTS_TOPIC_ARN = "arn:aws:sns:local:000000000000:alerts"

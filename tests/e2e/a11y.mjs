@@ -91,8 +91,19 @@ for (const [label, options] of [
   await visit("/alerts", ".alert-card", "alerts");
   await visit("/settings", "#threshold", "settings");
   await visit("/more", ".tiles", "more");
-  await visit("/subscription", ".soon-card", "coming section");
+  await visit("/telegram", ".soon-card", "coming section");
   await visit("/admin", ".facts.four", "admin panel");
+  await visit("/suppliers", "#sup-list a.tile", "supplier directory");
+  await page.click("#sup-list a.tile");
+  await page.waitForSelector("#order-form");
+  await audit(page, `${label}: supplier catalog (order form)`);
+  await visit("/orders", ".order", "orders");
+  await visit("/subscription", ".plans", "plans");
+  await visit("/assistant", "#ask", "assistant");
+  await visit("/savings", ".facts.four", "savings");
+  await visit("/recipes", ".recipe", "recipes");
+  await page.click("#new-recipe");
+  await audit(page, `${label}: recipe form`);
   await visit("/invoices/deadbeef-0000", ".error-state", "not found");
   // The welcome step, as a second account that has not chosen a template yet.
   if (!newcomer) {
@@ -121,6 +132,28 @@ for (const [label, options] of [
   }
   await page.check("input[name=business_type][value=shop]");
   await audit(page, `${label}: welcome`);
+  await page.close();
+}
+
+// The supplier's own cabinet.
+for (const [label, options] of [
+  ["light", { viewport: { width: 1280, height: 860 }, colorScheme: "light" }],
+  ["dark", { viewport: { width: 1280, height: 860 }, colorScheme: "dark" }],
+  ["phone 320px", { viewport: { width: 320, height: 640 }, colorScheme: "light" }],
+]) {
+  const page = await browser.newPage({ locale: "ru-RU", reducedMotion: "reduce", ...options });
+  await page.goto(base);
+  await page.waitForSelector("#auth-form");
+  await page.fill("#email", "supplier@example.com");
+  await page.fill("#password", "demo1234");
+  await page.click("button[type=submit]");
+  await page.waitForSelector("#item-form");
+  await audit(page, `${label}: supplier catalog`);
+  for (const [hash, selector, name] of [["/orders", ".order", "supplier orders"], ["/subscription", ".plans", "supplier plans"], ["/settings", "#contact", "supplier settings"]]) {
+    await page.goto(base + "/#" + hash);
+    await page.waitForSelector(selector);
+    await audit(page, `${label}: ${name}`);
+  }
   await page.close();
 }
 

@@ -12,6 +12,19 @@ built with Terraform, designed to run at **$0/month** at demo load.
 
 ![Price alert](docs/screenshots/03-alerts.png)
 
+## What the app does
+
+| Area | For | What it does |
+|---|---|---|
+| Invoices, products, alerts | business | Photo of an invoice -> Gemini -> checked numbers -> price history and alerts |
+| Business templates | business | After sign-up the owner picks cafe, restaurant, shop, bakery or other: sets the alert threshold and hints |
+| Savings dashboard | business | Overpay over 30 days against the best current price among the owner's suppliers, Excel export |
+| Suppliers and orders | both | A supplier signs up as «Я поставщик», keeps a catalog (CSV price list import) and gets orders; a business compares catalog prices with its own, then orders |
+| Recipes | business | Cost and margin of a dish from the latest invoice prices; 3 recipes on the free plan |
+| Plans and AI assistant | business, supplier | Free / Pro (demo payment, nothing is charged). Pro unlocks the Gemini assistant that answers from the owner's own data (30 questions a day) |
+| Admin panel | admin | Service-wide counts: accounts, suppliers, orders, plans, invoice statuses |
+| Telegram bot | | Not built yet: needs a bot token from @BotFather |
+
 ## Architecture
 
 ```mermaid
@@ -50,11 +63,12 @@ terraform/
 src/
   backend/                          Python 3.13 Lambda code (stdlib + boto3 only)
     api.py extract.py validate.py notify.py digest.py
-    supplyradar/                    shared: checks, pricing, products, gemini, db
+    supplyradar/                    shared: checks, pricing, products, gemini, db,
+                                    market (suppliers, orders, plans, assistant, savings, recipes)
   frontend/                         HTML + JS single-page app (Russian UI), no build step
 scripts/make_sample_invoices.py     synthetic invoices + ground truth
 samples/                            eval/ (12 invoices) and demo/ (4-step live demo)
-tests/unit/                         pytest (29 tests)
+tests/unit/                         pytest (47 tests)
 tests/eval/run_eval.py              Gemini field-accuracy test (Week 1 checkpoint, target >= 80 %)
 tests/e2e/                          local fake backend + Playwright browser test
 docs/                               architecture, setup guide, cost, monitoring,

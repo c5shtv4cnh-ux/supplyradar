@@ -11,6 +11,8 @@ Routes (all require a valid Cognito ID token):
     GET  /settings                alert threshold, email, business profile, is_admin
     PUT  /settings                change threshold / email (subscribes email to SNS) / business profile
     GET  /admin/overview          service-wide numbers, admin accounts only
+    ...and the routes in supplyradar/market.py: suppliers, catalog, orders, subscription,
+    assistant, savings, recipes.
 """
 import json
 import logging
@@ -19,7 +21,8 @@ import urllib.parse
 import uuid
 from datetime import datetime, timezone
 
-from supplyradar import aws, config, db
+from supplyradar import aws, config, db, market
+from supplyradar.common import ApiError, now_iso, num as _num  # noqa: F401
 
 log = logging.getLogger()
 log.setLevel(logging.INFO)
@@ -27,14 +30,7 @@ log.setLevel(logging.INFO)
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 REVIEWABLE = ("needs_review", "checked", "failed")
 # Business templates offered at sign-up. The web app holds the texts; the API only validates the key.
-BUSINESS_TYPES = ("cafe", "restaurant", "shop", "bakery", "other")
-
-
-class ApiError(Exception):
-    def __init__(self, status, message):
-        super().__init__(message)
-        self.status = status
-        self.message = message
+BUSINESS_TYPES = ("cafe", "restaurant", "shop", "bakery", "other", "supplier")
 
 
 def response(status, body):
@@ -78,10 +74,6 @@ def parse_body(event):
     if not isinstance(body, dict):
         raise ApiError(400, "Body must be a JSON object")
     return body
-
-
-def now_iso():
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # ---------- uploads and invoices ----------
@@ -146,17 +138,6 @@ def get_invoice(user, params, body):
         "get_object", Params={"Bucket": config.UPLOAD_BUCKET, "Key": item["file_key"]}, ExpiresIn=600,
     )
     return item
-
-
-def _num(value, field, required=True):
-    if value in (None, ""):
-        if required:
-            raise ApiError(400, f"Поле {field} обязательно")
-        return None
-    try:
-        return float(str(value).replace(" ", "").replace(",", "."))
-    except ValueError:
-        raise ApiError(400, f"Поле {field} должно быть числом")
 
 
 def review_invoice(user, params, body):
@@ -237,6 +218,7 @@ def _settings(user):
         "subscription_arn": s.get("subscription_arn"),
         "business_type": s.get("business_type"),
         "business_name": s.get("business_name"),
+        "contact": s.get("contact"),
     }
 
 
@@ -256,7 +238,7 @@ def get_settings(user, params, body):
     return {"threshold_pct": s["threshold_pct"], "email": s["email"], "account_email": user.get("email"),
             "email_pending": bool(s["email"]) and _pending(s["subscription_arn"]),
             "business_type": s["business_type"], "business_name": s["business_name"],
-            "is_admin": bool(user.get("is_admin"))}
+            "contact": s["contact"], "plan": market.effective_plan(user), "is_admin": bool(user.get("is_admin"))}
 
 
 def put_settings(user, params, body):
@@ -272,6 +254,7 @@ def put_settings(user, params, body):
     if business_type and business_type not in BUSINESS_TYPES:
         raise ApiError(400, "Неизвестный тип бизнеса")
     business_name = str(body.get("business_name", current.get("business_name")) or "").strip()[:80] or None
+    contact = str(body.get("contact", current.get("contact")) or "").strip()[:120] or None
 
     sub_arn = current.get("subscription_arn")
     if email != current.get("email"):
@@ -291,7 +274,10 @@ def put_settings(user, params, body):
                 ReturnSubscriptionArn=True,
             )["SubscriptionArn"]
 
+    # Merge into the stored item: it also holds the plan and other fields this handler does not own.
+    stored = db.store().get(db.user_pk(user["id"]), "SETTINGS") or {}
     db.store().put({
+        **stored,
         "PK": db.user_pk(user["id"]),
         "SK": "SETTINGS",
         "threshold_pct": threshold,
@@ -299,10 +285,11 @@ def put_settings(user, params, body):
         "subscription_arn": sub_arn,
         "business_type": business_type,
         "business_name": business_name,
+        "contact": contact,
         "updated_at": now_iso(),
     })
     return {"threshold_pct": threshold, "email": email,
-            "business_type": business_type, "business_name": business_name,
+            "business_type": business_type, "business_name": business_name, "contact": contact,
             "message": "Подтвердите подписку по ссылке в письме от AWS" if email and email != current.get("email") else "Сохранено"}
 
 
@@ -316,11 +303,13 @@ def admin_overview(user, params, body):
     invoices = store.scan_prefix("INV#")
     settings = store.scan_sk("SETTINGS")
     alerts = store.scan_prefix("ALERT#")
-    statuses, types = {}, {}
+    statuses, types, plans = {}, {}, {}
     for inv in invoices:
         statuses[inv.get("status") or "unknown"] = statuses.get(inv.get("status") or "unknown", 0) + 1
     for s in settings:
         types[s.get("business_type") or "none"] = types.get(s.get("business_type") or "none", 0) + 1
+        plan = market.plan_of(s)
+        plans[plan] = plans.get(plan, 0) + 1
     accounts = {i["PK"] for i in invoices} | {s["PK"] for s in settings}
     week_ago = datetime.now(timezone.utc).timestamp() - 7 * 86400
     def recent(item):
@@ -337,6 +326,9 @@ def admin_overview(user, params, body):
         "alerts": len(alerts),
         "by_status": statuses,
         "by_business_type": types,
+        "by_plan": plans,
+        "suppliers": types.get("supplier", 0),
+        "orders": len(store.scan_prefix("ORDER#")) // 2,
         "latest": [{"created_at": i.get("created_at"), "status": i.get("status"),
                     "supplier_name": i.get("supplier_name"), "total": i.get("total"),
                     "account": i["PK"][-6:]} for i in latest],
@@ -354,4 +346,5 @@ ROUTES = {
     "GET /settings": get_settings,
     "PUT /settings": put_settings,
     "GET /admin/overview": admin_overview,
+    **market.ROUTES,
 }

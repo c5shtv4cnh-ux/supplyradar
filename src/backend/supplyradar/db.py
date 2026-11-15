@@ -2,7 +2,12 @@
 
 Every item belongs to one user (PK = USER#<cognito sub>). Sort keys:
 
-    SETTINGS                                 alert threshold, email, SNS subscription
+    SETTINGS                                 alert threshold, email, SNS subscription, business profile, plan
+    CAT#<item_id>                            supplier accounts: one catalog item
+    ORDER#<order_id>                         order to a supplier (a copy sits with the buyer and the supplier)
+    RECIPE#<recipe_id>                       dish with its ingredients (cost is computed from PROD# prices)
+    PAY#<time>                               demo payment record
+    USAGE#<date>                             assistant questions asked that day
     INV#<invoice_id>                         invoice: status, fields, lines, issues
     DUP#<supplier_key>#<invoice_number>      first invoice seen with that number
     ALIAS#<normalized raw line name>         product key a printed name maps to
@@ -67,6 +72,9 @@ class Store:
             self._table.put_item(**kwargs)
         except self._table.meta.client.exceptions.ConditionalCheckFailedException:
             raise AlreadyExists(item["SK"])
+
+    def delete(self, pk, sk):
+        self._table.delete_item(Key={"PK": pk, "SK": sk})
 
     def query_prefix(self, pk, prefix, newest_first=False, limit=None):
         kwargs = {

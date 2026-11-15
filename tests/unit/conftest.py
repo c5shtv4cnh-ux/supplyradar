@@ -29,6 +29,9 @@ class MemoryStore:
             raise db.AlreadyExists(item["SK"])
         self.items[key] = copy.deepcopy(item)
 
+    def delete(self, pk, sk):
+        self.items.pop((pk, sk), None)
+
     def _sorted(self, pk):
         return sorted(((k[1], v) for k, v in self.items.items() if k[0] == pk), key=lambda kv: kv[0])
 

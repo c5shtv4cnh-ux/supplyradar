@@ -134,10 +134,11 @@ check(csv.charCodeAt(0) === 0xfeff && csv.includes("Поставщик;Номе�
   "invoices export to a CSV that Excel opens");
 await page.click("[data-nav=more]");
 await page.waitForSelector(".tiles");
-check((await page.$$(".tile .badge.soon")).length === 3 && await page.isVisible(".tile:has-text('Админ-панель')"),
-  "«Ещё» lists three coming sections and the admin panel");
+check((await page.$$(".tile .badge.soon")).length === 1 && await page.isVisible(".tile:has-text('Админ-панель')")
+  && await page.isVisible(".tile:has-text('Поставщики')") && await page.isVisible(".tile:has-text('Себестоимость')"),
+  "«Ещё» lists the working sections, Telegram marked as not ready, and the admin panel");
 await shot("11-more.png");
-await page.click(".tile:has-text('Подписка')");
+await page.click(".tile:has-text('Telegram')");
 await page.waitForSelector(".soon-card");
 check((await page.textContent(".soon-card")).includes("В разработке"), "a coming section says it is not ready yet");
 await page.goto(base + "/#/admin");
@@ -157,6 +158,107 @@ await page.fill("#search", "");
 await page.goto(base + "/#/invoices/deadbeef-0000");
 await page.waitForSelector(".error-state");
 check((await page.textContent(".error-state")).includes("не найдена"), "unknown invoice shows a not-found state");
+
+// Savings, recipes, plan and assistant (as the business owner).
+await page.goto(base + "/#/savings");
+await page.waitForSelector(".facts.four");
+check((await page.textContent(".facts.four")).includes("Переплата"), "savings dashboard shows the overpay numbers");
+await page.goto(base + "/#/recipes");
+await page.waitForSelector("#new-recipe");
+await page.click("#new-recipe");
+await page.fill("#r-name", "Латте");
+await page.fill("#r-portions", "2");
+await page.fill("#r-price", "1500");
+await page.fill("#ing-q-1", "2");
+check((await page.textContent("#recipe-sum")).includes("Себестоимость порции"), "recipe form previews the cost");
+await page.click("#recipe-form button[type=submit]");
+await page.waitForSelector(".recipe");
+check((await page.textContent(".recipe")).includes("Латте") && (await page.textContent(".recipe")).includes("Маржа"), "recipe saved with its cost and margin");
+await shot("13-recipes.png");
+await page.goto(base + "/#/assistant");
+await page.waitForSelector(".empty");
+check((await page.textContent(".empty")).includes("тариф Pro"), "assistant is offered on Pro only");
+await page.goto(base + "/#/subscription");
+await page.waitForSelector(".plans");
+await page.click("[data-plan=pro]");
+await page.waitForSelector("#demo-pay:not([hidden])");
+check((await page.textContent("#demo-pay")).includes("не списываются"), "payment says it is a demo");
+await shot("14-subscription.png");
+await page.click("#pay-go");
+await page.waitForSelector(".plan.current:has-text('Pro')");
+check(true, "demo payment switches the plan to Pro");
+await page.goto(base + "/#/assistant");
+await page.waitForSelector("#ask");
+await page.click("[data-q='Где я переплачиваю больше всего?']");
+await page.waitForSelector(".bubble.bot");
+check((await page.textContent(".bubble.bot")).includes("AI-помощника"), "assistant answers a question");
+await shot("15-assistant.png");
+
+// A supplier signs up on its own, fills the catalog and receives an order.
+async function signUp(pg, email, template, name) {
+  await pg.goto(base);
+  await pg.waitForSelector("#auth-form");
+  await pg.click("[data-mode=signup]");
+  await pg.fill("#email", email);
+  await pg.fill("#password", "demo1234");
+  await pg.click("button[type=submit]");
+  await pg.waitForSelector("#code");
+  await pg.fill("#code", "123456");
+  await pg.click("button[type=submit]");
+  await pg.waitForSelector("#password");
+  await pg.fill("#email", email);
+  await pg.fill("#password", "demo1234");
+  await pg.click("button[type=submit]");
+  await pg.waitForSelector("#welcome");
+  await pg.check(`input[name=business_type][value=${template}]`);
+  await pg.fill("#business-name", name);
+  await pg.click("#welcome button[type=submit]");
+}
+const supplier = await browser.newPage({ viewport: { width: 1280, height: 860 }, locale: "ru-RU", reducedMotion: "reduce" });
+await signUp(supplier, "supplier@example.com", "supplier", "ТОО Молочный двор");
+await supplier.waitForSelector("#item-form");
+check(!(await supplier.isVisible("[data-nav=invoices]")) && await supplier.isVisible("[data-nav=suppliers]"),
+  "a supplier sees the cabinet navigation, not the business one");
+await supplier.goto(base + "/#/invoices");
+await supplier.waitForSelector("#item-form");
+check(supplier.url().endsWith("#/suppliers"), "business pages send a supplier back to the catalog");
+await supplier.fill("#i-name", "Молоко 3,2% 1 л");
+await supplier.fill("#i-price", "380");
+await supplier.click("#item-save");
+await supplier.waitForSelector("tr[data-id]");
+await supplier.setInputFiles("#import", { name: "price.csv", mimeType: "text/csv",
+  buffer: Buffer.from("Название;Единица;Цена\r\nСыр голландский;кг;3000\r\nМасло 82%;шт;1200\r\n") });
+await supplier.waitForSelector("tr[data-id]:nth-child(3)");
+check((await supplier.$$("tr[data-id]")).length === 3, "catalog gets a new item and an imported CSV price list");
+await supplier.click("tr[data-id]:has-text('Масло') [data-stock]");
+await supplier.waitForSelector("tr[data-id]:has-text('Масло') .badge.bad");
+check(true, "a supplier can mark an item out of stock");
+await shot("16-catalog.png");
+
+await page.goto(base + "/#/suppliers");
+await page.waitForSelector("#sup-list a.tile");
+check((await page.textContent("#sup-list")).includes("ТОО Молочный двор"), "business sees the supplier in the directory");
+await page.click("#sup-list a.tile");
+await page.waitForSelector("#order-form");
+check((await page.textContent("#order-form")).includes("Ваша лучшая цена"), "catalog compares prices with the business's own best price");
+check(await page.isDisabled("input[aria-label^='Количество: Масло']"), "an out-of-stock item cannot be ordered");
+await page.fill("input[aria-label^='Количество: Молоко']", "5");
+await page.fill("#note", "К 8 утра");
+await shot("17-supplier-catalog.png");
+await page.click("#order-form button[type=submit]");
+await page.waitForSelector(".order");
+check((await page.textContent(".order")).includes("Новая"), "order is sent to the supplier");
+
+await supplier.goto(base + "/#/orders");
+await supplier.waitForSelector(".order");
+check((await supplier.textContent(".order")).includes("К 8 утра"), "the supplier receives the order with its note");
+await supplier.click("[data-status=accepted]");
+await supplier.waitForSelector(".order .badge:has-text('Принята')");
+await page.reload();
+await page.waitForSelector(".order .badge:has-text('Принята')");
+check(true, "the buyer sees the accepted status");
+await shot("18-orders.png");
+await supplier.close();
 
 const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "ru-RU", reducedMotion: "reduce" });
 await mobile.goto(base);
