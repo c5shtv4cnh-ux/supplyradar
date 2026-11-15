@@ -1,0 +1,170 @@
+name: deploy
+
+# terraform apply from GitHub Actions through an OIDC role (no access keys).
+#
+# This workflow does NOTHING until the owner has, on purpose:
+#   1. created the deploy role (enable_github_deploy = true, terraform apply
+#      from their own machine);
+#   2. saved its ARN in the repository variable AWS_DEPLOY_ROLE_ARN (dev) or
+#      AWS_DEPLOY_ROLE_ARN_PROD (prod), plus TF_STATE_BUCKET and ALARM_EMAIL;
+#   3. for deploys after a merge to main: set AUTO_DEPLOY_DEV to "true".
+# Without step 3 the only way to deploy is the "Run workflow" button.
+# Production is never deployed automatically. Full guide: docs/cicd.md
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - "src/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy"
+        type: choice
+        options: [dev, prod]
+        default: dev
+      confirm:
+        description: 'Type "deploy" to confirm'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'dev' }}
+  cancel-in-progress: false # never interrupt a running apply
+
+env:
+  TERRAFORM_VERSION: 1.13.3
+  TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'dev' }}
+
+jobs:
+  gate:
+    name: Is deployment switched on?
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.decide.outputs.go }}
+      environment: ${{ steps.decide.outputs.environment }}
+    steps:
+      - id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          CONFIRM: ${{ inputs.confirm }}
+          AUTO_DEPLOY_DEV: ${{ vars.AUTO_DEPLOY_DEV }}
+          ROLE_DEV: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          ROLE_PROD: ${{ vars.AWS_DEPLOY_ROLE_ARN_PROD }}
+        run: |
+          go=false
+          role="$ROLE_DEV"; [ "$TARGET" = "prod" ] && role="$ROLE_PROD"
+          if [ -z "$role" ]; then
+            why="no deploy role is configured for $TARGET (docs/cicd.md)"
+          elif [ "$REF" != "refs/heads/main" ]; then
+            why="deploys run only from the main branch"
+          elif [ "$EVENT" = "push" ] && [ "$AUTO_DEPLOY_DEV" != "true" ]; then
+            why="automatic deploy after merge is off (repository variable AUTO_DEPLOY_DEV is not \"true\")"
+          elif [ "$EVENT" = "workflow_dispatch" ] && [ "$CONFIRM" != "deploy" ]; then
+            why="the confirmation word was not typed"
+          else
+            go=true; why="deploying $TARGET"
+          fi
+          echo "go=$go" >> "$GITHUB_OUTPUT"
+          echo "environment=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "### Deploy gate: $why" >> "$GITHUB_STEP_SUMMARY"
+
+  checks:
+    name: Checks
+    needs: gate
+    if: needs.gate.outputs.go == 'true'
+    permissions: # the reused workflow declares a (skipped) OIDC plan job
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Deploy (${{ needs.gate.outputs.environment }})
+    needs: [gate, checks]
+    if: needs.gate.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    # The GitHub Environment is where a required reviewer is configured; the
+    # AWS role trusts only jobs that run inside it.
+    environment: ${{ needs.gate.outputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ENVIRONMENT: ${{ needs.gate.outputs.environment }}
+      ROLE_ARN: ${{ needs.gate.outputs.environment == 'prod' && vars.AWS_DEPLOY_ROLE_ARN_PROD || vars.AWS_DEPLOY_ROLE_ARN }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      TF_VAR_alarm_email: ${{ vars.ALARM_EMAIL }}
+      TF_VAR_github_repository: ${{ github.repository }}
+      TF_VAR_state_bucket: ${{ vars.TF_STATE_BUCKET }}
+      TF_VAR_enable_github_deploy: "true"
+      TF_VAR_create_github_oidc_provider: ${{ needs.gate.outputs.environment == 'prod' && 'false' || 'true' }}
+    defaults:
+      run:
+        working-directory: terraform
+        shell: bash # with pipefail: a failed command before `| tee` fails the step
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check settings
+        run: |
+          test -n "$TF_STATE_BUCKET" || { echo "::error::Repository variable TF_STATE_BUCKET is not set"; exit 1; }
+          # An empty address would remove the confirmed alarm subscription.
+          test -n "$TF_VAR_alarm_email" || { echo "::error::Repository variable ALARM_EMAIL is not set"; exit 1; }
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: eu-central-1
+          role-session-name: github-deploy-${{ github.run_id }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+      - name: init
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=$TF_STATE_BUCKET" \
+            -backend-config="key=supplyradar/$ENVIRONMENT/terraform.tfstate" \
+            -backend-config="region=eu-central-1" \
+            -backend-config="use_lockfile=true"
+      - name: plan
+        run: |
+          terraform plan -input=false -no-color -lock-timeout=120s \
+            -var-file="envs/$ENVIRONMENT.tfvars" -out=tfplan | tee plan.txt
+          {
+            echo "### terraform plan ($ENVIRONMENT)"
+            echo '```'
+            grep -E '^(Plan:|No changes)' plan.txt || tail -n 5 plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Stop if the plan would destroy data
+        run: |
+          # The table, the user pool and the uploads bucket are never replaced
+          # or deleted by the pipeline; that needs the owner's own hands.
+          terraform show -json tfplan > plan.json
+          python3 - <<'PY'
+          import json, sys
+          protected = ("aws_dynamodb_table", "aws_cognito_user_pool", "aws_s3_bucket", "aws_kms_key")
+          bad = [c["address"] for c in json.load(open("plan.json")).get("resource_changes", [])
+                 if c["type"] in protected and "delete" in c["change"]["actions"]]
+          if bad:
+              print("::error::The plan deletes or replaces protected resources: " + ", ".join(bad))
+              sys.exit(1)
+          print("No protected resource is deleted or replaced.")
+          PY
+      - name: apply
+        run: terraform apply -input=false -no-color -lock-timeout=120s tfplan
+      - name: Refresh the CDN
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "$(terraform output -raw cloudfront_distribution_id)" --paths "/*" \
+            --query Invalidation.Id --output text
+      - name: Smoke test
+        run: |
+          APP_URL="$(terraform output -raw app_url)"
+          API_URL="$(terraform output -raw api_url)"
+          python3 ../scripts/smoke_test.py --app-url "$APP_URL" --api-url "$API_URL" | tee -a "$GITHUB_STEP_SUMMARY"

@@ -22,6 +22,33 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "site" {
   }
 }
 
+# Versioning gives a one-command rollback of the web app; old versions expire.
+resource "aws_s3_bucket_versioning" "site" {
+  bucket = aws_s3_bucket.site.id
+  versioning_configuration {
+    status = var.versioning ? "Enabled" : "Suspended"
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "site" {
+  bucket = aws_s3_bucket.site.id
+  rule {
+    id     = "clean-old-versions"
+    status = "Enabled"
+    filter {}
+    noncurrent_version_expiration {
+      noncurrent_days = 30
+    }
+    expiration {
+      expired_object_delete_marker = true
+    }
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
+  depends_on = [aws_s3_bucket_versioning.site]
+}
+
 resource "aws_cloudfront_origin_access_control" "site" {
   name                              = var.bucket_name
   origin_access_control_origin_type = "s3"
@@ -37,12 +64,54 @@ data "aws_cloudfront_response_headers_policy" "security" {
   name = "Managed-SecurityHeadersPolicy"
 }
 
+# Own security headers when a Content-Security-Policy is set: the browser then
+# refuses scripts, frames and network calls the app does not need, which limits
+# what an injected script could do. Without a CSP the AWS managed policy is used.
+resource "aws_cloudfront_response_headers_policy" "security" {
+  count   = var.content_security_policy == "" ? 0 : 1
+  name    = "${var.bucket_name}-security"
+  comment = "HSTS, CSP, no framing, no MIME sniffing"
+
+  security_headers_config {
+    content_security_policy {
+      content_security_policy = var.content_security_policy
+      override                = true
+    }
+    strict_transport_security {
+      access_control_max_age_sec = 31536000
+      include_subdomains         = true
+      preload                    = true
+      override                   = true
+    }
+    content_type_options {
+      override = true
+    }
+    frame_options {
+      frame_option = "DENY"
+      override     = true
+    }
+    referrer_policy {
+      referrer_policy = "strict-origin-when-cross-origin"
+      override        = true
+    }
+  }
+
+  custom_headers_config {
+    items {
+      header   = "Permissions-Policy"
+      value    = "camera=(self), microphone=(), geolocation=(), payment=()"
+      override = true
+    }
+  }
+}
+
 resource "aws_cloudfront_distribution" "site" {
   enabled             = true
   comment             = var.comment
   default_root_object = "index.html"
   price_class         = "PriceClass_100"
   http_version        = "http2and3"
+  web_acl_id          = var.web_acl_arn # WAFv2 web ACL (null = no WAF)
 
   origin {
     origin_id                = "site"
@@ -57,7 +126,7 @@ resource "aws_cloudfront_distribution" "site" {
     cached_methods             = ["GET", "HEAD"]
     compress                   = true
     cache_policy_id            = data.aws_cloudfront_cache_policy.optimized.id
-    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security.id
+    response_headers_policy_id = try(aws_cloudfront_response_headers_policy.security[0].id, data.aws_cloudfront_response_headers_policy.security.id)
   }
 
   restrictions {
@@ -84,6 +153,25 @@ data "aws_iam_policy_document" "site" {
       test     = "StringEquals"
       variable = "AWS:SourceArn"
       values   = [aws_cloudfront_distribution.site.arn]
+    }
+  }
+
+  statement {
+    sid     = "DenyInsecureTransport"
+    effect  = "Deny"
+    actions = ["s3:*"]
+    resources = [
+      aws_s3_bucket.site.arn,
+      "${aws_s3_bucket.site.arn}/*",
+    ]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
     }
   }
 }

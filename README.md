@@ -61,8 +61,8 @@ terraform/
   iam.tf versions.tf
   bootstrap/                        remote state bucket (run once per account)
   envs/                             dev.tfvars, prod.tfvars, *.backend.hcl.example
-  modules/                          11 modules: network storage database queue auth api
-                                    frontend lambda_function monitoring notifications ci
+  modules/                          13 modules: network storage database queue auth api
+                                    frontend lambda_function monitoring notifications ci waf kms
   tests/plan.tftest.hcl             offline plan test with a mocked AWS provider
 src/
   backend/                          Python 3.13 Lambda code (stdlib + boto3 only)
@@ -76,9 +76,13 @@ samples/                            eval/ (12 invoices) and demo/ (4-step live d
 tests/unit/                         pytest (58 tests)
 tests/eval/run_eval.py              Gemini field-accuracy test (Week 1 checkpoint, target >= 80 %)
 tests/e2e/                          local fake backend, Playwright browser test, axe accessibility test (CI job «ui»)
-docs/                               architecture, setup guide, cost, monitoring,
-                                    troubleshooting, demo script, interview guide
-.github/workflows/ci.yml            tests, terraform validate/test, plan via OIDC
+tests/load/load_test.py             stepped load test with a chart (local or against AWS)
+scripts/cost_model.py               monthly cost estimate for 100 and 10 000 users
+scripts/smoke_test.py               post-deploy check: HTTPS, security headers, API protected
+docs/                               architecture, setup guide, security, CI/CD, monitoring, load test,
+                                    cost, troubleshooting, demo script, interview guide
+.github/workflows/ci.yml            tests, terraform validate/test, UI tests, Checkov scan, plan via OIDC
+.github/workflows/deploy.yml        terraform apply via OIDC (off until the owner sets it up)
 ```
 
 ## Quick start
@@ -97,13 +101,25 @@ cp terraform/envs/dev.backend.hcl.example terraform/envs/dev.backend.hcl   # put
 # 2. Gemini key -> SSM (never in Git or Terraform state)
 aws ssm put-parameter --name /supplyradar/dev/gemini-api-key --type SecureString --value "$GEMINI_API_KEY"
 
-# 3. deploy (edit alarm_email in terraform/envs/dev.tfvars first)
+# 3. deploy (your alarm email goes to a git-ignored file first)
+echo 'alarm_email = "you@your-mail.com"' > terraform/owner.auto.tfvars
 make init plan apply
 make outputs                          # app_url = https://xxxx.cloudfront.net
 ```
 
 Then open `app_url`, sign up, upload `samples/demo/1-…png`, `2-…`, `3-…` in order and watch the
 price alert arrive. Tear down after the defence with `make destroy`.
+
+## Operations and security
+
+| Topic | Summary | Details |
+|---|---|---|
+| Environments | dev and prod from the same code, separate state and names | [setup guide](docs/setup-guide.md#10-production-environment) |
+| CI/CD | tests, security scan and `terraform plan` on pull requests; deploy through a GitHub OIDC role, no stored keys, off by default | [docs/cicd.md](docs/cicd.md) |
+| Security | HTTPS + CSP, API rate limits, least-privilege IAM, optional WAF and KMS key | [docs/security.md](docs/security.md) |
+| Monitoring | one dashboard, 10 alarms, X-Ray traces, saved log queries | [docs/monitoring.md](docs/monitoring.md) |
+| Backups | DynamoDB point-in-time recovery, S3 versioning and lifecycle | [docs/monitoring.md](docs/monitoring.md#backups-and-restore) |
+| Load and cost | load test with a chart; about $1 a month of AWS at 100 businesses, about $180 at 10 000 | [docs/load-test.md](docs/load-test.md), [docs/cost-analysis.md](docs/cost-analysis.md) |
 
 ## Local development without AWS
 
@@ -134,6 +150,9 @@ Cross-supplier matching worked: «СЛИВКИ 33% 0,5Л» and «Сливки 33
 |---|---|---|
 | Unit tests (checks, pricing, handlers) | `make test` | Python |
 | Terraform fmt / validate / offline plan | `make tf-test` | Terraform |
+| Security scan of the Terraform code | `make security` | `pip install checkov==3.4.5` |
+| Load test (local stand-in, or AWS) | `make load-test` | Python (+ matplotlib for the chart) |
+| Deployed site health | `make smoke` | a deployed environment |
 | AI extraction accuracy | `GEMINI_API_KEY=… make eval` | Gemini key |
 | Browser test of the web app | `make local` then `node tests/e2e/ui.spec.mjs` | Node + Playwright |
 | Accessibility (WCAG 2.2 AA, axe) | after the browser test: `node tests/e2e/a11y.mjs` | + `axe-core` |

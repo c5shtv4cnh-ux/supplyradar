@@ -42,3 +42,17 @@ variable "log_retention_days" {
   type    = number
   default = 7
 }
+
+variable "route_throttles" {
+  description = "Per-route limits that override the default, keyed by route key (\"POST /assistant\")."
+  type = map(object({
+    rate  = number
+    burst = number
+  }))
+  default = {}
+
+  validation {
+    condition     = alltrue([for k in keys(var.route_throttles) : contains(var.routes, k)])
+    error_message = "Every route_throttles key must be one of var.routes."
+  }
+}

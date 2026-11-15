@@ -57,6 +57,16 @@ resource "aws_apigatewayv2_stage" "default" {
     throttling_rate_limit  = var.throttling_rate_limit
   }
 
+  # Tighter limits for the routes that cost money per call (Gemini, S3 uploads).
+  dynamic "route_settings" {
+    for_each = var.route_throttles
+    content {
+      route_key              = route_settings.key
+      throttling_rate_limit  = route_settings.value.rate
+      throttling_burst_limit = route_settings.value.burst
+    }
+  }
+
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.access.arn
     format = jsonencode({
@@ -69,6 +79,8 @@ resource "aws_apigatewayv2_stage" "default" {
       error     = "$context.authorizer.error"
     })
   }
+
+  depends_on = [aws_apigatewayv2_route.this] # route_settings need the routes to exist
 }
 
 resource "aws_lambda_permission" "api" {

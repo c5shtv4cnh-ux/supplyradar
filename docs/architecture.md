@@ -12,7 +12,8 @@ flowchart TB
   end
 
   subgraph Edge
-    CF[CloudFront<br/>HTTPS, security headers]
+    WAF[AWS WAF<br/>optional: rate limit, managed rules]
+    CF[CloudFront<br/>HTTPS, security headers, CSP]
     WEB[(S3 web bucket<br/>private, OAC)]
   end
 
@@ -51,9 +52,10 @@ flowchart TB
 
   GEM{{Google Gemini API<br/>Flash-Lite, JSON schema}}
   SSM[(SSM Parameter Store<br/>Gemini key, SecureString)]
-  CW[CloudWatch logs, alarms,<br/>dashboard · Budget $1]
+  CW[CloudWatch logs, 10 alarms,<br/>dashboard · X-Ray · Budget]
+  KMS[(KMS key<br/>optional)]
 
-  U --> CF --> WEB
+  U --> WAF --> CF --> WEB
   U --> COG
   U -- Bearer ID token --> APIGW --> APIFN
   APIFN -- presigned POST --> U
@@ -79,18 +81,21 @@ flowchart TB
 | Service | Job | Free allowance used |
 |---|---|---|
 | S3 | Web app files; invoice uploads | 5 GB (12 months) / credits |
-| CloudFront | Public HTTPS URL, caching, security headers | 1 TB + 10 M requests / month (always free) |
+| CloudFront | Public HTTPS URL, caching, security headers, Content-Security-Policy | 1 TB + 10 M requests / month (always free) |
+| WAF (optional, `enable_waf`) | Rate limit per IP and AWS managed rules in front of CloudFront | none: about $9 / month |
 | Cognito | Sign-up, sign-in, JWT | 10 000 MAU (always free) |
 | API Gateway (HTTP API) | REST API, JWT auth, throttling | 1 M calls / month (12 months) |
 | Lambda × 5 | api, extract, validate, notify, digest | 1 M requests + 400 000 GB-s (always free) |
 | SQS × 4 | Buffer between steps, retries, dead-letter queues | 1 M requests (always free) |
-| DynamoDB + Streams | Invoices, product catalog, price history, alerts | 25 GB, 25 RCU/WCU (always free) |
+| DynamoDB + Streams | Invoices, product catalog, price history, alerts; point-in-time recovery | 25 GB, 25 RCU/WCU (always free); backups billed per GB |
 | SNS | Alert and digest emails | 1 000 emails (always free) |
 | EventBridge Scheduler | Weekly digest trigger | 14 M invocations (always free) |
 | VPC | Isolates the function that writes business data | free (no NAT) |
 | SSM Parameter Store | Gemini API key as SecureString | standard parameters free |
-| CloudWatch + Budgets | Logs (7 days), 7 alarms, dashboard, $1 budget | 10 alarms, 5 GB logs, 3 dashboards |
-| IAM | One least-privilege role per function, GitHub OIDC | free |
+| CloudWatch + Budgets | Logs (7 days), 10 alarms, dashboard, saved queries, budget | 10 alarms, 5 GB logs, 3 dashboards |
+| X-Ray | Traces of every function | 100 000 traces / month (always free) |
+| KMS (optional, `enable_kms`) | The project's own key for the table, uploads and queues | none: $1 / month |
+| IAM | One least-privilege role per function, GitHub OIDC plan and deploy roles | free |
 
 Not counted as AWS services: the Gemini API (external AI) and Terraform (tooling).
 
@@ -182,25 +187,51 @@ copy numbers as printed and never fix them, so the checks can find errors on the
 
 ## Security considerations
 
+Full description, costs and accepted risks: [security.md](security.md).
+
 - **Identity:** Cognito email sign-up with verification; API Gateway rejects any request without a valid
   ID token for this user pool and client (JWT authorizer on every route (39 in total)).
 - **Tenant isolation:** user id comes only from the verified token (`sub` claim), never from the request body;
   all keys are under `USER#<sub>`; SNS subscriptions carry a filter policy on `user_id`.
 - **Least privilege IAM:** one role per function, scoped to exact table, bucket prefix (`uploads/*`), queue,
-  topic and parameter ARNs (`terraform/iam.tf`). The GitHub Actions role is read-only and can only take the state lock.
+  topic and parameter ARNs (`terraform/iam.tf`). GitHub Actions gets two OIDC roles: a plan role that reads
+  configuration but is denied the data itself, and an optional deploy role that only the protected GitHub
+  Environment can assume and that cannot change its own access.
 - **Secrets:** the Gemini key is an SSM SecureString created with the AWS CLI; Terraform only knows its name,
   so the key never appears in Git, plans or state.
 - **Network:** the validate function runs in private subnets with no internet route; its security group allows
   only HTTPS to the S3 and DynamoDB gateway endpoints. The default security group is emptied.
   The extract function stays outside the VPC on purpose: calling Gemini from inside would need a NAT gateway (~$32/month).
-- **Data protection:** all buckets private with Block Public Access; web bucket readable only by this CloudFront
-  distribution (OAC); uploads bucket denies non-TLS requests; encryption at rest on S3, DynamoDB, SQS, SNS;
-  originals expire after 90 days.
+- **Edge:** HTTPS only, HSTS, a strict Content-Security-Policy (scripts only from the site itself, no framing),
+  and optionally AWS WAF with a per-IP rate limit and AWS managed rules (`enable_waf`).
+- **Data protection:** all buckets private with Block Public Access and TLS-only policies; web bucket readable
+  only by this CloudFront distribution (OAC); encryption at rest on S3, DynamoDB, SQS, SNS with AWS keys, or
+  with the project's own rotating KMS key (`enable_kms`); DynamoDB point-in-time recovery (35 days);
+  originals move to a cheaper storage class after 30 days and expire after 90.
 - **Input validation:** content type and size enforced by the presigned POST policy (JPEG/PNG/WEBP/PDF, ≤ 10 MB);
   API validates every body; model output passes JSON schema and arithmetic checks before it is stored as trusted.
-- **Abuse and cost:** API throttling (10 rps, burst 20); extract concurrency capped at 2; $1 budget alert.
+- **Abuse and cost:** API throttling (10 rps, burst 20; 2 rps on the AI assistant, 5 rps on uploads);
+  extract concurrency capped at 2; budget alert.
 - **AI data:** the free Gemini tier may use inputs to improve Google's models, so only synthetic invoices
   (`samples/`) are used for the demo. A real deployment would switch to the paid tier.
+
+## Environments and delivery
+
+| | dev | prod |
+|---|---|---|
+| Settings | `terraform/envs/dev.tfvars` | `terraform/envs/prod.tfvars` |
+| State | `supplyradar/dev/terraform.tfstate` | `supplyradar/prod/terraform.tfstate` (same bucket, separate key and lock) |
+| Resource names | `supplyradar-dev-*` | `supplyradar-prod-*` |
+| Deletion protection (table, user pool) | off | on |
+| WAF, customer-managed KMS key | off ($0) | on (about $10/month) |
+| Upload versioning, retention | off, 90 days | on, 365 days |
+| Logs | 7 days | 30 days |
+| API throttle | 10 req/s | 20 req/s |
+| Deploy from GitHub | after merge, if switched on | only by the Run workflow button, with a reviewer |
+
+The same Terraform code builds both; only the tfvars file and the state key differ. Pull requests get an
+automatic read-only `terraform plan`; deployment goes through a GitHub OIDC role without stored keys and
+stays off until the owner sets it up ([cicd.md](cicd.md)).
 
 ## Scalability and reliability
 
@@ -210,5 +241,11 @@ copy numbers as printed and never fix them, so the checks can find errors on the
   and a CloudWatch alarm emails the operator. Messages can be replayed with SQS redrive.
 - DynamoDB Streams only wakes the notify function for new `ALERT#` items (event filter), so other writes cost nothing.
 - Two subnets in two availability zones for the VPC function.
-- Moving beyond the free tier: switch DynamoDB to on-demand, raise extract concurrency with a paid Gemini tier,
-  add a custom domain + ACM certificate on CloudFront.
+- Backups: DynamoDB point-in-time recovery restores the table to any second of the last 35 days
+  ([monitoring.md](monitoring.md#backups-and-restore)).
+- Observability: 10 alarms, one dashboard that follows a request from the API to the queues, X-Ray traces
+  ([monitoring.md](monitoring.md)).
+- Measured and expected limits under load: [load-test.md](load-test.md); cost at 100 and 10 000 users:
+  [cost-analysis.md](cost-analysis.md).
+- Moving beyond the free tier: `table_billing_mode = "PAY_PER_REQUEST"`, a higher `api_throttle_rate`, a paid
+  Gemini tier with more extract concurrency, a custom domain + ACM certificate on CloudFront.
