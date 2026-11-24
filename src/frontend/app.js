@@ -33,6 +33,7 @@
     search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>',
     warn: '<svg viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg>',
     spark: '<svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></svg>',
+    gear: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>',
     check: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.8 2.8L16 9.5"/></svg>',
     calendar: '<svg viewBox="0 0 24 24"><path d="M4 6h16v14H4zM4 10h16M8 3v4M16 3v4"/></svg>',
     cloud: '<svg viewBox="0 0 24 24"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19 10a4 4 0 0 1-1 8z"/><path d="M4 4l16 16"/></svg>',
@@ -345,7 +346,7 @@
   ];
   // Pages that live under the «Ещё» tab.
   const MORE_SECTIONS = ["more", "suppliers", "orders", "subscription", "assistant", "savings", "claims", "contracts", "locations", "recipes", "telegram", "admin",
-    "expenses", "stock", "reports", "taxes", "access", "shared"];
+    "expenses", "stock", "reports", "taxes", "access", "shared", "settings"];
   // Pages that only make sense for a business: a supplier account is sent to its catalog instead.
   const BUSINESS_ONLY = ["invoices", "products", "alerts", "savings", "claims", "contracts", "locations", "recipes", "assistant", "more", "admin",
     "pos", "receipts", "expenses", "stock", "reports", "taxes"];
@@ -1281,6 +1282,7 @@
     profile = s;
     const supplier = s.business_type === "supplier";
     app.innerHTML = `
+      ${isSupplier() ? "" : '<a class="back" href="#/more">← Ещё</a>'}
       <div class="page-head"><h1>Настройки</h1></div>
       <form class="card" id="settings" style="max-width:520px" novalidate>
         <h2>Бизнес</h2>
@@ -2757,6 +2759,7 @@
         <p class="sub">Касса, отчёты и налоги, склад, поставщики, переплаты и помощник.</p></div>
       <h2 class="tiles-title">Учёт и отчётность</h2>
       <ul class="tiles">
+        ${tile("#/settings", "gear", "Настройки", "Порог алертов, email, название бизнеса")}
         ${tile("#/reports", "chart", "Отчёты и налоги", "Выручка, прибыль, черновик налога, пакет для бухгалтера")}
         ${tile("#/expenses", "doc", "Расходы", "Аренда, зарплата, коммунальные, повтор каждый месяц")}
         ${tile("#/stock", "box", "Склад", "Остатки и готовый заказ, когда товара мало")}
