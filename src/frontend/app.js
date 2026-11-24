@@ -345,7 +345,7 @@
   ];
   // Pages that live under the «Ещё» tab.
   const MORE_SECTIONS = ["more", "suppliers", "orders", "subscription", "assistant", "savings", "claims", "contracts", "locations", "recipes", "telegram", "admin",
-    "pos", "receipts", "expenses", "stock", "reports", "taxes", "access", "shared"];
+    "expenses", "stock", "reports", "taxes", "access", "shared"];
   // Pages that only make sense for a business: a supplier account is sent to its catalog instead.
   const BUSINESS_ONLY = ["invoices", "products", "alerts", "savings", "claims", "contracts", "locations", "recipes", "assistant", "more", "admin",
     "pos", "receipts", "expenses", "stock", "reports", "taxes"];
@@ -395,7 +395,7 @@
     document.body.className = needsAuth ? "app" : "landing";
     const section = hash.split("/")[1];
     const paintNav = () => {
-      const tab = isSupplier() || !MORE_SECTIONS.includes(section) ? section : "more";
+      const tab = section === "receipts" ? "pos" : isSupplier() || !MORE_SECTIONS.includes(section) ? section : "more";
       document.getElementById("nav").hidden = section === "welcome";
       document.querySelectorAll("[data-for]").forEach((a) => {
         a.hidden = !!profile && a.dataset.for !== (isSupplier() ? "supplier" : "business");
@@ -2373,7 +2373,7 @@
     if (!alive()) return;
     const refunded = r.status === "refunded";
     app.innerHTML = `
-      <a class="back no-print" href="#/pos">← Касса</a>
+      <a class="back no-print" href="#/pos">← К кассе</a>
       <article class="card receipt" aria-labelledby="receipt-title">
         <header class="receipt-head">
           <b>${esc(r.seller.name || "")}</b>
@@ -2757,7 +2757,6 @@
         <p class="sub">Касса, отчёты и налоги, склад, поставщики, переплаты и помощник.</p></div>
       <h2 class="tiles-title">Учёт и отчётность</h2>
       <ul class="tiles">
-        ${tile("#/pos", "bag", "Касса", "Продажа и чек с номером, PDF или печать")}
         ${tile("#/reports", "chart", "Отчёты и налоги", "Выручка, прибыль, черновик налога, пакет для бухгалтера")}
         ${tile("#/expenses", "doc", "Расходы", "Аренда, зарплата, коммунальные, повтор каждый месяц")}
         ${tile("#/stock", "box", "Склад", "Остатки и готовый заказ, когда товара мало")}

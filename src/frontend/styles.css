@@ -806,3 +806,4 @@ fieldset.pay .check { margin: 6px 0 0; }
 .facts .v { overflow-wrap: anywhere; }
 @media (max-width: 400px) { .facts .card { padding: 14px 14px; } .facts .v { font-size: 1.375rem; } }
 .receipt ~ .actionbar.no-print { justify-content: center; }
+@media (max-width: 380px) { .nav a { font-size: 0.6875rem; padding: 6px 0; } .nav svg { width: 20px; height: 20px; } }

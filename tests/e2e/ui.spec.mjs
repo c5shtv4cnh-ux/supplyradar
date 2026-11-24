@@ -283,8 +283,9 @@ await page.reload();
 await page.waitForSelector(".deadline-note");
 check((await page.textContent(".deadline-note")).includes("Сдать налоговую декларацию"), "a deadline within a week shows on the invoices page");
 
-await page.goto(base + "/#/pos");
+await page.click("[data-nav=pos]");
 await page.waitForSelector("#sale-form");
+check(await page.getAttribute("[data-nav=pos]", "aria-current") === "page", "«Касса» is a main navigation tab");
 await page.selectOption("#s-item", "free");
 await page.fill("#s-free", "Круассан");
 await page.fill("#s-qty", "2");
