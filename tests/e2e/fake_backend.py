@@ -26,11 +26,12 @@ sys.path.insert(0, str(ROOT / "tests" / "unit"))
 import os  # noqa: E402
 
 os.environ.setdefault("AWS_DEFAULT_REGION", "eu-central-1")
+os.environ.setdefault("ADMIN_EMAILS", "owner@example.com")  # the demo account sees the admin panel
 
 import api  # noqa: E402
 import validate  # noqa: E402
 from conftest import MemoryStore  # noqa: E402
-from supplyradar import aws, config, db  # noqa: E402
+from supplyradar import aws, config, db, gemini  # noqa: E402
 
 PORT = int(os.environ.get("PORT", "8765"))
 BASE = f"http://localhost:{PORT}"
@@ -113,7 +114,7 @@ def fake_extract(key):
 def make_token(email):
     sub = USERS.setdefault(email, {"sub": f"local-{len(USERS) + 1}"})["sub"]
     payload = base64.urlsafe_b64encode(json.dumps(
-        {"sub": sub, "email": email, "exp": int(time.time()) + 3600}).encode()).decode().rstrip("=")
+        {"sub": sub, "email": email, "email_verified": True, "exp": int(time.time()) + 3600}).encode()).decode().rstrip("=")
     return f"e30.{payload}.sig"
 
 
@@ -171,6 +172,9 @@ class Handler(SimpleHTTPRequestHandler):
             self.api("GET", path)
         else:
             super().do_GET()
+
+    def do_DELETE(self):
+        self.api("DELETE", urllib.parse.urlparse(self.path).path)
 
     def do_PUT(self):
         self.api("PUT", urllib.parse.urlparse(self.path).path)
@@ -235,6 +239,7 @@ class Handler(SimpleHTTPRequestHandler):
                 event = {
                     "routeKey": route,
                     "pathParameters": m.groupdict() or None,
+                    "queryStringParameters": dict(urllib.parse.parse_qsl(urllib.parse.urlparse(self.path).query)) or None,
                     "body": self.body().decode() or None,
                     "requestContext": {"authorizer": {"jwt": {"claims": claims}}},
                 }
@@ -244,7 +249,13 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_json(404, {"message": "Not Found"})
 
 
+def fake_assistant(parts, **kwargs):
+    """No network in the local stand: the assistant answers from a canned text."""
+    return "Локальный стенд: здесь был бы ответ AI-помощника по вашим накладным."
+
+
 def main():
+    gemini.generate = fake_assistant
     db._store = MemoryStore()
     aws._clients.update(s3=FakeS3(), sqs=FakeSQS(), sns=FakeSNS())
     config.ALERTS_TOPIC_ARN = "arn:aws:sns:local:000000000000:alerts"

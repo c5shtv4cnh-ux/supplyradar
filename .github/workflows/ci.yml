@@ -20,6 +20,33 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: pytest -q tests/unit
 
+  ui:
+    name: UI and accessibility tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install -r requirements-dev.txt
+      - run: npm install --no-audit --no-fund
+        working-directory: tests/e2e
+      - run: npx playwright install --with-deps chromium
+        working-directory: tests/e2e
+      - name: Start the local fake backend
+        run: |
+          python3 tests/e2e/fake_backend.py > fake_backend.log 2>&1 &
+          sleep 3
+      - name: Browser tests, then axe (WCAG 2.2 AA) on every screen
+        working-directory: tests/e2e
+        run: npm test
+      - name: Backend log on failure
+        if: failure()
+        run: cat fake_backend.log
+
   terraform:
     name: Terraform fmt, validate, test
     runs-on: ubuntu-latest

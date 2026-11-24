@@ -29,6 +29,9 @@ class MemoryStore:
             raise db.AlreadyExists(item["SK"])
         self.items[key] = copy.deepcopy(item)
 
+    def delete(self, pk, sk):
+        self.items.pop((pk, sk), None)
+
     def _sorted(self, pk):
         return sorted(((k[1], v) for k, v in self.items.items() if k[0] == pk), key=lambda kv: kv[0])
 
@@ -43,6 +46,9 @@ class MemoryStore:
 
     def scan_sk(self, sk):
         return [copy.deepcopy(v) for k, v in self.items.items() if k[1] == sk]
+
+    def scan_prefix(self, prefix):
+        return [copy.deepcopy(v) for k, v in self.items.items() if k[1].startswith(prefix)]
 
     def by_prefix(self, prefix):
         return [v for k, v in self.items.items() if k[1].startswith(prefix)]

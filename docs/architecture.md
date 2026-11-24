@@ -152,6 +152,18 @@ Partition key `PK = USER#<cognito sub>` keeps every owner's data separate; queri
 | `PROD#<product key>` | latest price per supplier (for comparison) | validate |
 | `PRICE#<product>#<date>#<invoice>#<n>` | one price observation (history chart) | validate |
 | `ALERT#<time>#<invoice>#<product>` | price increase ≥ threshold, cheaper supplier | validate |
+| `LOC#<id>` | a point of a «Сеть» account (name, address); invoices carry `location_id` | api |
+| `CONTRACT#<hash of product+supplier>` | price from the supplier contract and tolerance | api |
+| `CLAIM#<time>` | claim text, amount, invoice, status draft/sent/resolved/rejected, refund | api |
+| `SALE#<time>-<id>`, `SEQ#sale` | sale with lines, unit cost at the time of sale, payment, refund; receipt number counter | api |
+| `EXP#<date>#<id>`, `EXPT#<id>` | expense; template of a monthly one | api |
+| `STOCK#<product key>` | minimum, sale price, stocktaking adjustment | api |
+| `TAXD#<id>` | tax deadline with its repeat | api |
+| `ACCESS#<email>` and `PK=EMAIL#<email>, SK=OWNER#<sub>` | read-only accountant access, stored on both sides so each can list it | api |
+| `CAT#`, `ORDER#`, `RECIPE#`, `PAY#`, `USAGE#` | supplier catalog, orders (one copy per side), recipes, demo payments, assistant quota | api |
+
+Invoices, prices and alerts created by «sample data» carry `demo: true` and are deleted with one call
+(`DELETE /demo`); real data is never touched.
 
 **Product matching.** Gemini returns a `canonical_name` for each line (`"МОЛОКО 3,2 1Л"` and
 `"Молоко 3,2% 1 л"` both become `молоко 3.2% 1 л`). Code turns it into a key. The first key seen for a
@@ -176,7 +188,7 @@ copy numbers as printed and never fix them, so the checks can find errors on the
 ## Security considerations
 
 - **Identity:** Cognito email sign-up with verification; API Gateway rejects any request without a valid
-  ID token for this user pool and client (JWT authorizer on all 9 routes).
+  ID token for this user pool and client (JWT authorizer on every route (58 in total)).
 - **Tenant isolation:** user id comes only from the verified token (`sub` claim), never from the request body;
   all keys are under `USER#<sub>`; SNS subscriptions carry a filter policy on `user_id`.
 - **Least privilege IAM:** one role per function, scoped to exact table, bucket prefix (`uploads/*`), queue,
