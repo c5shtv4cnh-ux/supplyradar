@@ -30,6 +30,14 @@ press **Претензия поставщику**: the text with numbers and inv
 mark it sent and resolved with the refunded amount. *Контрактные цены* flags an invoice above the contract price.
 Payment is a demo: nothing is charged.
 
+## Optional: outgoing documents (3 minutes)
+
+*Ещё → Касса*: sell two items, **Пробить чек** → numbered receipt with BIN and address → **Печать или PDF**.
+*Склад*: cream is below its minimum, the order text to the supplier is ready. *Отчёты и налоги*: revenue, purchases,
+expenses, profit for the month, tax draft with the rate entered in *Налоги* and the list of what to check;
+**Журнал в Excel** and **Пакет для бухгалтера (PDF)**. *Доступ бухгалтера*: the accountant signs in with their own
+email and sees the report read-only. Say clearly: the app prepares documents, the owner or accountant files them.
+
 ## Likely questions
 
 **Why is the extract function outside the VPC?** It must reach the Gemini API on the internet. Inside a

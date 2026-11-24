@@ -262,6 +262,87 @@ await page.waitForSelector(".demo-banner", { state: "detached" });
 check(true, "sample data can be cleared");
 await authed("POST", "/demo"); // the accessibility run reuses this account with data in it
 
+// Outgoing documents: receipt, expenses, stock order, tax draft and the accountant's package.
+await page.goto(base + "/#/taxes");
+await page.waitForSelector("#tax-form");
+await page.fill("#t-regime", "Упрощённая декларация");
+await page.fill("#t-rate", "3");
+await page.fill("#t-bin", "1234 5678 9012");
+await page.fill("#t-address", "Алматы, Абая 10");
+await page.click("#tax-form button[type=submit]");
+await page.waitForSelector("#t-rate[value='3']");
+await page.click("[data-tpl='0']");
+const soon = new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10);
+await page.fill("#dl-due", soon);
+await page.click("#dl-form button[type=submit]");
+await page.waitForSelector(".deadlines li");
+check((await page.textContent(".deadlines")).includes("через 3 дня"), "tax calendar counts the days left");
+await shot("28-taxes.png");
+await page.goto(base + "/#/invoices");
+await page.reload();
+await page.waitForSelector(".deadline-note");
+check((await page.textContent(".deadline-note")).includes("Сдать налоговую декларацию"), "a deadline within a week shows on the invoices page");
+
+await page.goto(base + "/#/pos");
+await page.waitForSelector("#sale-form");
+await page.selectOption("#s-item", "free");
+await page.fill("#s-free", "Круассан");
+await page.fill("#s-qty", "2");
+await page.fill("#s-price", "900");
+await page.click("#s-add");
+await page.selectOption("#s-item", { label: "молоко 3.2% 1 л, 650 ₸" });
+check((await page.inputValue("#s-price")) === "650", "a product's sale price is filled in");
+await page.click("#s-add");
+await page.fill("#s-discount", "50");
+check((await page.textContent("#cart-total")).replace(/\s/g, "").includes("2400"), "cart total applies the discount");
+await page.check("input[name=payment][value=card]");
+await shot("24-pos.png");
+await page.click("#s-pay");
+await page.waitForSelector(".receipt");
+const receipt = (await page.textContent(".receipt")).replace(/\s/g, " ");
+check(receipt.includes("Чек №") && receipt.includes("123456789012") && receipt.replace(/ /g, "").includes("2400") && receipt.includes("Карта"),
+  "receipt carries the number, BIN, total and payment");
+await shot("25-receipt.png");
+await page.click("#refund-open");
+await page.click("#refund-form button[type=submit]");
+check(await page.isVisible("#refund-error"), "a refund asks for the reason");
+await page.fill("#refund-reason", "Ошибка кассира");
+await page.click("#refund-form button[type=submit]");
+await page.waitForSelector(".receipt .badge.bad");
+check(true, "receipt can be refunded");
+
+await page.goto(base + "/#/expenses");
+await page.waitForSelector("#exp-form");
+await page.selectOption("#e-cat", "salary");
+await page.fill("#e-amount", "150000");
+await page.fill("#e-note", "Бариста");
+await page.check("#e-monthly");
+await page.click("#exp-form button[type=submit]");
+await page.waitForSelector("text=Ежемесячные платежи");
+check(await page.isVisible(".badge.info:has-text('каждый месяц')"), "a monthly expense is listed with its repeat");
+
+await page.goto(base + "/#/stock");
+await page.waitForSelector(".stock-order");
+check((await page.textContent(".stock-order")).includes("Просим привезти"), "low stock drafts an order to the supplier");
+await shot("27-stock.png");
+
+await page.goto(base + "/#/reports");
+await page.waitForSelector(".tax-card");
+const report = await page.textContent("#app");
+check(report.includes("Выручка") && report.includes("Упрощённая декларация") && !(await page.textContent(".tax-lines .total")).includes("—"),
+  "report shows revenue and a tax draft with the owner's rate");
+const [journal] = await Promise.all([page.waitForEvent("download"), page.click("#exp-journal")]);
+const journalCsv = fs.readFileSync(await journal.path(), "utf8");
+check(journalCsv.includes("Продажа") && journalCsv.includes("Закупка") && journalCsv.includes("Расход"), "journal exports sales, purchases and expenses");
+await shot("26-reports.png");
+
+await page.goto(base + "/#/access");
+await page.waitForSelector("#acc-form");
+await page.fill("#acc-email", "accountant@example.com");
+await page.click("#acc-form button[type=submit]");
+await page.waitForSelector("[data-revoke]");
+check(true, "owner opens read-only access for an accountant");
+
 // A supplier signs up on its own, fills the catalog and receives an order.
 async function signUp(pg, email, template, name) {
   await pg.goto(base);
@@ -328,6 +409,18 @@ await page.waitForSelector(".order .badge:has-text('Принята')");
 check(true, "the buyer sees the accepted status");
 await shot("18-orders.png");
 await supplier.close();
+
+// The accountant signs up with the invited email and reads the owner's report, nothing else.
+const accountant = await browser.newPage({ viewport: { width: 1280, height: 860 }, locale: "ru-RU", reducedMotion: "reduce" });
+await signUp(accountant, "accountant@example.com", "other", "");
+await accountant.waitForSelector("#drop");
+await accountant.goto(base + "/#/access");
+await accountant.waitForSelector("a[href^='#/shared/']");
+await accountant.click("a[href^='#/shared/']");
+await accountant.waitForSelector(".tax-card");
+check((await accountant.textContent("h1")).includes("Кофейня на Абая") && !(await accountant.isVisible("a[href='#/taxes']")),
+  "the accountant sees the owner's report read-only");
+await accountant.close();
 
 const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, locale: "ru-RU", reducedMotion: "reduce" });
 await mobile.goto(base);

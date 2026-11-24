@@ -23,6 +23,12 @@ built with Terraform, designed to run at **$0/month** at demo load.
 | Contract prices | business | Price from the supplier contract plus tolerance; invoices above it are flagged and can be turned into a claim (3 on free, unlimited on Pro) |
 | Network of points | business | «Сеть» plan: up to 9 points, an invoice is assigned to a point on upload, per-point spend and overpay comparison |
 | First run | business | Sample data on first sign-in (can be switched off and removed any time), «Начало работы» card, empty states with the next step |
+| Cash desk and receipts | business | Sale of dishes and products, discount, cash/card/transfer, numbered receipt with BIN and address, print or PDF, refund with a reason |
+| Expenses | business | Rent, salary, utilities and other costs; a monthly one repeats by itself |
+| Stock and supplier order | business | Balance = received by invoices − sold (dishes use their recipe) ± stocktaking; low stock drafts an order text per supplier |
+| Reports and tax draft | business | Month, quarter, half-year or year: revenue, purchases, expenses, profit, profit per item, operations journal, Excel export and a printable package for the accountant; tax draft = income × the rate the owner enters, with a list of what to check. Nothing is filed automatically |
+| Tax calendar | business | Owner's deadlines with repeats; a deadline within a week shows on the invoices page |
+| Accountant access | business, accountant | Owner opens read-only access to an accountant's verified email; the accountant sees the reports only |
 | Suppliers and orders | both | A supplier signs up as «Я поставщик», keeps a catalog (CSV price list import) and gets orders; a business compares catalog prices with its own, then orders |
 | Recipes | business | Cost and margin of a dish from the latest invoice prices; 3 recipes on the free plan |
 | Plans and AI assistant | business, supplier | Free / Pro / «Сеть» / supplier Pro (demo payment, nothing is charged). Pro and «Сеть» unlock the Gemini assistant that answers from the owner's own data (30 questions a day) |
@@ -69,11 +75,12 @@ src/
     api.py extract.py validate.py notify.py digest.py
     supplyradar/                    shared: checks, pricing, products, gemini, db,
                                     market (suppliers, orders, plans, assistant, savings, recipes),
-                                    growth (points, contract prices, claims, sample data)
+                                    growth (points, contract prices, claims, sample data),
+                                    ledger (sales, receipts, expenses, stock, reports, taxes, accountant access)
   frontend/                         HTML + JS single-page app (Russian UI), no build step
 scripts/make_sample_invoices.py     synthetic invoices + ground truth
 samples/                            eval/ (12 invoices) and demo/ (4-step live demo)
-tests/unit/                         pytest (58 tests)
+tests/unit/                         pytest (69 tests)
 tests/eval/run_eval.py              Gemini field-accuracy test (Week 1 checkpoint, target >= 80 %)
 tests/e2e/                          local fake backend, Playwright browser test, axe accessibility test (CI job «ui»)
 docs/                               architecture, setup guide, cost, monitoring,

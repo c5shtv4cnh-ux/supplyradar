@@ -8,7 +8,7 @@ import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
-from . import db, market
+from . import db, ledger, market
 from .common import ApiError, now_iso, num
 
 log = logging.getLogger()
@@ -349,6 +349,7 @@ def seed_demo(user, params, body):
     for item in store.query_prefix(pk, "ALERT#"):
         if _is_demo(item.get("product_key")):
             store.put({**item, "demo": True})
+    ledger.seed_demo_ledger(pk)
     return {"invoices": len(DEMO_INVOICES)}
 
 
@@ -357,7 +358,7 @@ def clear_demo(user, params, body):
     pk = db.user_pk(user["id"])
     store = db.store()
     removed = 0
-    for prefix in ("INV#", "PROD#", "PRICE#", "ALERT#", "ALIAS#", "DUP#", "CONTRACT#", "CLAIM#"):
+    for prefix in ("INV#", "PROD#", "PRICE#", "ALERT#", "ALIAS#", "DUP#", "CONTRACT#", "CLAIM#", *ledger.DEMO_PREFIXES):
         for item in store.query_prefix(pk, prefix):
             if item.get("demo") or _is_demo(item.get("product_key")) or _is_demo(item.get("supplier_key")):
                 store.delete(pk, item["SK"])

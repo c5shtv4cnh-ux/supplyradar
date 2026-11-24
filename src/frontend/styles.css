@@ -749,3 +749,60 @@ fieldset.ingredients legend { font-weight: 600; padding: 0 6px; }
 
 @media (max-width: 520px) { .hide-sm { display: none; } }
 @media (max-width: 520px) { .table-wrap td .badge { white-space: normal; } .table-wrap th, .table-wrap td { padding-left: 12px; padding-right: 12px; } }
+
+/* ---------- cash desk, receipts, reports ---------- */
+.tiles-title { font-size: 1rem; font-weight: 600; margin: 8px 0 10px; color: var(--cream); }
+.tiles + .tiles-title { margin-top: 24px; }
+.page-head + .tiles-title { margin-top: 0; }
+.cart-title { font-size: 0.9375rem; margin: 18px 0 8px; }
+.cart { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
+.cart li { display: flex; gap: 10px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.cart li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.cart-total { font-size: 1.125rem; margin: 14px 0 0; }
+fieldset.pay { border: 0; padding: 0; margin: 0; min-width: 0; }
+fieldset.pay legend { font-size: 0.875rem; font-weight: 500; padding: 0; margin-bottom: 4px; }
+fieldset.pay .check { margin: 6px 0 0; }
+.receipt { max-width: 420px; margin: 0 auto 16px; }
+.receipt h1 { font-size: 1.5rem; margin: 14px 0 2px; }
+.receipt-head { display: flex; flex-direction: column; gap: 2px; text-align: center; padding-bottom: 12px; border-bottom: 1px dashed var(--border-strong); }
+.receipt-lines { width: 100%; margin-top: 12px; }
+.receipt-lines td { padding: 8px 0; border-bottom: 1px dashed var(--border); vertical-align: top; }
+.receipt-sum, .tax-lines { margin: 12px 0; }
+.receipt-sum div, .tax-lines div { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
+.receipt-sum dt, .tax-lines dt { color: var(--muted); }
+.receipt-sum dd, .tax-lines dd { margin: 0; font-variant-numeric: tabular-nums; }
+.receipt-sum .total, .tax-lines .total { font-size: 1.25rem; font-weight: 600; border-top: 1px solid var(--border-strong); margin-top: 6px; padding-top: 10px; }
+.receipt-sum .total dt, .tax-lines .total dt { color: var(--text); }
+.tax-card .checks { margin: 6px 0 10px; padding-left: 20px; }
+.tax-card .checks li { margin-bottom: 4px; }
+.ok-text { color: var(--ok, inherit); }
+.plain-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; justify-content: space-between; margin-bottom: 16px; }
+.plain-toolbar label { color: rgba(244, 237, 224, .86); margin-top: 0; }
+.spread { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.spread:last-child { border-bottom: 0; }
+.deadlines .small { display: block; }
+.stock-order + .stock-order { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+.stock-edit { margin-top: 6px; }
+.stock-edit summary { cursor: pointer; font-size: 0.8125rem; color: var(--accent-ink); }
+.stock-edit form { margin-top: 8px; min-width: 220px; }
+.deadline-note a { margin-left: 6px; }
+.print-only { display: none; }
+@media print {
+  .topbar, .skip, .toast, .offline, .no-print, .back, .export, .plain-toolbar { display: none !important; }
+  .print-only { display: block; margin-bottom: 12px; }
+  html, body, body.app { background: #fff !important; color: #000 !important; }
+  .card { box-shadow: none !important; border: 1px solid #bbb !important; background: #fff !important; color: #000 !important; break-inside: avoid; }
+  .page-head h1, .page-head .sub, .muted, .small, .cell-sub { color: #000 !important; }
+  .table-wrap { overflow: visible !important; }
+  .container { max-width: none; padding: 0; }
+}
+.grid-2 > * { min-width: 0; }
+#dl-form .chips { flex-wrap: wrap; }
+#dl-form .chip { white-space: normal; text-align: left; height: auto; min-height: 36px; }
+.plain-toolbar > * { min-width: 0; max-width: 100%; }
+.plain-toolbar select { max-width: 100%; }
+.plain-toolbar .actionbar { margin: 0; }
+.facts > .card { min-width: 0; }
+.facts .v { overflow-wrap: anywhere; }
+@media (max-width: 400px) { .facts .card { padding: 14px 14px; } .facts .v { font-size: 1.375rem; } }
+.receipt ~ .actionbar.no-print { justify-content: center; }

@@ -332,13 +332,23 @@
     [/^#\/contracts$/, renderContracts, true, "Контрактные цены"],
     [/^#\/locations$/, renderLocations, true, "Точки"],
     [/^#\/recipes$/, renderRecipes, true, "Себестоимость блюд"],
+    [/^#\/pos$/, renderPos, true, "Касса"],
+    [/^#\/receipts\/([\w-]+)$/, renderReceipt, true, "Чек"],
+    [/^#\/expenses$/, renderExpenses, true, "Расходы"],
+    [/^#\/stock$/, renderStock, true, "Склад"],
+    [/^#\/reports$/, renderReports, true, "Отчёты и налоги"],
+    [/^#\/taxes$/, renderTaxes, true, "Налоги"],
+    [/^#\/access$/, renderAccess, true, "Доступ бухгалтера"],
+    [/^#\/shared\/([\w-]+)$/, renderShared, true, "Отчёты для бухгалтера"],
     [/^#\/(telegram)$/, renderSoon, true, "Скоро"],
     [/^#\/admin$/, renderAdmin, true, "Админ-панель"],
   ];
   // Pages that live under the «Ещё» tab.
-  const MORE_SECTIONS = ["more", "suppliers", "orders", "subscription", "assistant", "savings", "claims", "contracts", "locations", "recipes", "telegram", "admin"];
+  const MORE_SECTIONS = ["more", "suppliers", "orders", "subscription", "assistant", "savings", "claims", "contracts", "locations", "recipes", "telegram", "admin",
+    "pos", "receipts", "expenses", "stock", "reports", "taxes", "access", "shared"];
   // Pages that only make sense for a business: a supplier account is sent to its catalog instead.
-  const BUSINESS_ONLY = ["invoices", "products", "alerts", "savings", "claims", "contracts", "locations", "recipes", "assistant", "more", "admin"];
+  const BUSINESS_ONLY = ["invoices", "products", "alerts", "savings", "claims", "contracts", "locations", "recipes", "assistant", "more", "admin",
+    "pos", "receipts", "expenses", "stock", "reports", "taxes"];
   let renderId = 0;
   let currentHash = null;
   // A page with unsaved edits sets this; the router asks before leaving it.
@@ -754,6 +764,9 @@
 
     app.innerHTML = `
       <div class="page-head"><h1>Накладные</h1></div>
+      ${(profile.deadlines_soon || []).length ? `<div class="card notice-card deadline-note" role="status">
+        <b>Скоро срок:</b> ${profile.deadlines_soon.map((t) => `${esc(t.title)}, ${t.days_left ? `через ${t.days_left} ${plural(t.days_left, "день", "дня", "дней")}` : "сегодня"}`).join("; ")}.
+        <a href="#/taxes">Календарь сроков</a></div>` : ""}
       ${invoices.some((i) => i.demo) ? `<div class="card demo-banner" role="status">
         <div><b>Вы смотрите демо-данные.</b> <span class="small muted">Так выглядит сервис, когда накладные уже загружены. Свои накладные появятся рядом.</span></div>
         <button type="button" id="clear-demo">Удалить демо-данные</button></div>` : ""}
@@ -1343,7 +1356,8 @@
         <label for="business-name">Название <span class="muted">(необязательно)</span></label>
         <input id="business-name" type="text" maxlength="80" autocomplete="organization" placeholder="Кофейня на Абая">
         <label class="check"><input type="checkbox" id="load-demo" checked>
-          <span>Показать сервис на демо-данных: пример накладных и алерт о росте цены. Удалить их можно в один клик.</span></label>
+          <span>Показать сервис на демо-данных: пример накладных, продаж и алерт о росте цены. Удалить их можно в один клик.</span></label>
+        <p class="small muted">Вы бухгалтер? Выберите «Другой бизнес», снимите галочку демо-данных и откройте «Ещё → Доступ бухгалтера».</p>
         <p class="field-error" id="welcome-error" role="alert" hidden></p>
         <div class="actionbar">
           <button class="primary" type="submit">Продолжить</button>
@@ -2244,6 +2258,492 @@
   };
   const soonBadge = '<span class="badge soon">В разработке</span>';
 
+  // ---- cash desk, receipts, expenses, stock, reports, taxes, accountant access
+
+  const PAY_NAMES = { cash: "Наличные", card: "Карта", transfer: "Перевод" };
+  const timeOf = (iso) => (iso ? new Date(iso).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }) : "");
+  const qtyText = (v) => Number(v).toLocaleString("ru-RU", { maximumFractionDigits: 3 });
+  let cart = [];
+
+  async function renderPos(alive) {
+    const d = await api("GET", "/sales");
+    if (!alive()) return;
+    const items = d.sellables;
+    const option = (i, n) => `<option value="${n}">${esc(i.name)}${i.price != null ? `, ${money(i.price)}` : ""}${i.kind === "recipe" ? " (блюдо)" : ""}</option>`;
+    app.innerHTML = `
+      <div class="page-head"><h1>Касса</h1>
+        <p class="sub">Пробейте продажу: чек с номером можно распечатать или сохранить в PDF. Блюда списывают ингредиенты со склада.</p></div>
+      <div class="facts four">
+        ${stat("Выручка сегодня", money(d.total), `${d.count} ${plural(d.count, "чек", "чека", "чеков")}`)}
+        ${stat("Наличные", money(d.by_payment.cash))}
+        ${stat("Карта", money(d.by_payment.card))}
+        ${stat("Перевод", money(d.by_payment.transfer))}
+      </div>
+      <div class="grid-2">
+        <form class="card" id="sale-form" novalidate>
+          <h2>Новая продажа</h2>
+          <label for="s-item">Позиция</label>
+          <select id="s-item">${items.map(option).join("")}<option value="free">Другое: ввести название</option></select>
+          <div id="s-free-wrap" hidden><label for="s-free">Название</label><input id="s-free" maxlength="80"></div>
+          <div class="form-row">
+            <div><label for="s-qty">Количество</label><input id="s-qty" type="number" inputmode="decimal" min="0" step="any" value="1"></div>
+            <div><label for="s-price">Цена, ₸</label><input id="s-price" type="number" inputmode="decimal" min="0" step="any"></div>
+          </div>
+          <p class="field-error" id="sale-error" role="alert" hidden></p>
+          <div class="actionbar"><button type="button" id="s-add">Добавить в чек</button></div>
+          <div id="cart"></div>
+        </form>
+        <section class="card flush" aria-labelledby="today-title">
+          <div class="toolbar"><h2 id="today-title" style="margin:0">Продажи за ${fmtDate(d.date)}</h2></div>
+          ${d.sales.length ? `<div class="table-wrap"><table>
+            <thead><tr><th>Чек</th><th>Оплата</th><th class="num">Сумма</th></tr></thead>
+            <tbody>${d.sales.map((s) => `<tr><td><a href="#/receipts/${esc(s.sale_id)}">№ ${esc(s.number)}</a><span class="cell-sub">${timeOf(s.created_at)}</span></td>
+              <td>${esc(PAY_NAMES[s.payment])}${s.status === "refunded" ? ' <span class="badge bad">возврат</span>' : ""}</td>
+              <td class="num">${money(s.total)}</td></tr>`).join("")}</tbody></table></div>`
+            : `<div style="padding:0 22px 8px">${emptyState("doc", "Сегодня продаж ещё нет", "Добавьте позиции слева и пробейте первый чек.")}</div>`}
+        </section>
+      </div>`;
+    const form = app.querySelector("#sale-form");
+    const sel = form.querySelector("#s-item");
+    const price = form.querySelector("#s-price");
+    const freeWrap = form.querySelector("#s-free-wrap");
+    const errorEl = form.querySelector("#sale-error");
+    const showError = (text, focus) => { errorEl.textContent = text; errorEl.hidden = false; if (focus) focus.focus(); };
+    const syncItem = () => {
+      const i = items[sel.value];
+      freeWrap.hidden = sel.value !== "free";
+      price.value = i && i.price != null ? i.price : "";
+    };
+    sel.addEventListener("change", syncItem);
+    syncItem();
+    const drawCart = () => {
+      const subtotal = cart.reduce((t, l) => t + l.qty * l.price, 0);
+      form.querySelector("#cart").innerHTML = cart.length ? `
+        <h3 class="cart-title">В чеке</h3>
+        <ul class="cart">${cart.map((l, n) => `<li><span>${esc(l.name)} × ${qtyText(l.qty)}</span><b>${money(l.qty * l.price)}</b>
+          <button type="button" class="link" data-remove="${n}" aria-label="Убрать ${esc(l.name)}">Убрать</button></li>`).join("")}</ul>
+        <div class="form-row">
+          <div><label for="s-discount">Скидка, ₸</label><input id="s-discount" type="number" inputmode="decimal" min="0" step="any" value="0"></div>
+          <fieldset class="pay"><legend>Оплата</legend>
+            ${Object.entries(PAY_NAMES).map(([k, v], n) => `<label class="check"><input type="radio" name="payment" value="${k}"${n === 0 ? " checked" : ""}> ${v}</label>`).join("")}
+          </fieldset>
+        </div>
+        <p class="cart-total">Итого: <b id="cart-total">${money(subtotal)}</b></p>
+        <div class="actionbar"><button class="primary" type="submit" id="s-pay">Пробить чек</button></div>` : "";
+      form.querySelectorAll("[data-remove]").forEach((b) => b.addEventListener("click", () => { cart.splice(Number(b.dataset.remove), 1); drawCart(); }));
+      const disc = form.querySelector("#s-discount");
+      if (disc) disc.addEventListener("input", () => { form.querySelector("#cart-total").textContent = money(Math.max(0, subtotal - (toNum(disc.value) || 0))); });
+    };
+    drawCart();
+    form.querySelector("#s-add").addEventListener("click", () => {
+      errorEl.hidden = true;
+      const qty = toNum(form.querySelector("#s-qty").value);
+      const p = toNum(price.value);
+      if (!qty || qty <= 0) return showError("Укажите количество больше нуля", form.querySelector("#s-qty"));
+      if (p == null || p < 0) return showError("Укажите цену", price);
+      if (sel.value === "free") {
+        const name = form.querySelector("#s-free").value.trim();
+        if (!name) return showError("Укажите название позиции", form.querySelector("#s-free"));
+        cart.push({ kind: "free", key: null, name, qty, price: p });
+      } else {
+        const i = items[sel.value];
+        if (!i) return showError("Выберите позицию", sel);
+        cart.push({ kind: i.kind, key: i.key, name: i.name, qty, price: p });
+      }
+      form.querySelector("#s-qty").value = "1";
+      drawCart();
+    });
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      errorEl.hidden = true;
+      if (!cart.length) return showError("Добавьте хотя бы одну позицию", sel);
+      const done = busyButton(form.querySelector("#s-pay"), "Пробиваем…");
+      try {
+        const r = await api("POST", "/sales", { lines: cart, payment: form.querySelector("input[name=payment]:checked").value,
+          discount: toNum(form.querySelector("#s-discount").value) || 0 });
+        cart = [];
+        toast(`Чек № ${r.number} на ${money(r.total)}`);
+        location.hash = `#/receipts/${r.sale_id}`;
+      } catch (err) { done(); if (!err.silent) showError(err.message); }
+    });
+  }
+
+  async function renderReceipt(id, alive) {
+    const r = await api("GET", `/sales/${encodeURIComponent(id)}`);
+    if (!alive()) return;
+    const refunded = r.status === "refunded";
+    app.innerHTML = `
+      <a class="back no-print" href="#/pos">← Касса</a>
+      <article class="card receipt" aria-labelledby="receipt-title">
+        <header class="receipt-head">
+          <b>${esc(r.seller.name || "")}</b>
+          ${r.seller.bin ? `<span>ИИН/БИН ${esc(r.seller.bin)}</span>` : ""}
+          ${r.seller.address ? `<span>${esc(r.seller.address)}</span>` : ""}
+        </header>
+        <h1 id="receipt-title">Чек № ${esc(r.number)}</h1>
+        <p class="small muted">${fmtDate(r.created_at)}, ${timeOf(r.created_at)}</p>
+        ${refunded ? `<p class="badge bad">Возврат: ${esc(r.refund_reason)}</p>` : ""}
+        <table class="receipt-lines"><tbody>
+          ${r.lines.map((l) => `<tr><td>${esc(l.name)}<span class="cell-sub">${qtyText(l.qty)} × ${money(l.price)}</span></td><td class="num">${money(l.total)}</td></tr>`).join("")}
+        </tbody></table>
+        <dl class="receipt-sum">
+          ${r.discount ? `<div><dt>Без скидки</dt><dd>${money(r.subtotal)}</dd></div><div><dt>Скидка</dt><dd>−${money(r.discount)}</dd></div>` : ""}
+          <div class="total"><dt>Итого</dt><dd>${money(r.total)}</dd></div>
+          <div><dt>Оплата</dt><dd>${esc(r.payment_name)}</dd></div>
+        </dl>
+        <p class="small muted">Документ учёта продажи, сформирован в SupplyRadar. Не заменяет фискальный чек кассового аппарата.</p>
+      </article>
+      <div class="actionbar no-print">
+        <button type="button" class="primary" id="print">Печать или PDF</button>
+        <a class="button" href="#/pos">Новая продажа</a>
+        ${refunded ? "" : '<button type="button" id="refund-open">Оформить возврат</button>'}
+      </div>
+      <form class="card no-print" id="refund-form" style="max-width:520px" hidden novalidate>
+        <label for="refund-reason">Причина возврата</label>
+        <input id="refund-reason" maxlength="200" placeholder="Например: ошибка кассира">
+        <p class="field-error" id="refund-error" role="alert" hidden></p>
+        <div class="actionbar"><button class="primary" type="submit">Вернуть ${money(r.total)}</button></div>
+      </form>`;
+    app.querySelector("#print").addEventListener("click", () => window.print());
+    const form = app.querySelector("#refund-form");
+    app.querySelector("#refund-open")?.addEventListener("click", () => { form.hidden = false; form.querySelector("input").focus(); });
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const errorEl = form.querySelector("#refund-error");
+      const reason = form.querySelector("input").value.trim();
+      if (!reason) { errorEl.textContent = "Укажите причину возврата"; errorEl.hidden = false; return; }
+      const done = busyButton(form.querySelector("button[type=submit]"), "Возвращаем…");
+      try { await api("PUT", `/sales/${encodeURIComponent(id)}`, { reason }); toast("Возврат оформлен"); reload(); }
+      catch (err) { done(); if (!err.silent) { errorEl.textContent = err.message; errorEl.hidden = false; } }
+    });
+  }
+
+  let expenseMonth = null;
+  async function renderExpenses(alive) {
+    const month = expenseMonth || today().slice(0, 7);
+    const d = await api("GET", `/expenses?month=${month}`);
+    if (!alive()) return;
+    const cats = d.categories;
+    app.innerHTML = `
+      <a class="back" href="#/more">← Ещё</a>
+      <div class="page-head"><h1>Расходы</h1>
+        <p class="sub">Аренда, зарплата, коммунальные платежи. Закупки по накладным считаются сами, их сюда вносить не нужно.</p></div>
+      <div class="grid-2">
+        <form class="card" id="exp-form" novalidate>
+          <h2>Новый расход</h2>
+          <div class="form-row">
+            <div><label for="e-date">Дата</label><input id="e-date" type="date" value="${today()}"></div>
+            <div><label for="e-cat">Категория</label><select id="e-cat">${Object.entries(cats).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
+          </div>
+          <label for="e-amount">Сумма, ₸</label><input id="e-amount" type="number" inputmode="decimal" min="0" step="any" required>
+          <label for="e-note">Комментарий <span class="muted">(необязательно)</span></label><input id="e-note" maxlength="120">
+          <label class="check"><input type="checkbox" id="e-monthly"> Повторять каждый месяц</label>
+          <p class="field-error" id="exp-error" role="alert" hidden></p>
+          <div class="actionbar"><button class="primary" type="submit">Добавить расход</button></div>
+        </form>
+        <section class="card flush" aria-labelledby="exp-title">
+          <div class="toolbar"><h2 id="exp-title" style="margin:0">За месяц: ${money(d.total)}</h2>
+            <div><label class="sr-only" for="e-month">Месяц</label><input id="e-month" type="month" value="${month}"></div></div>
+          ${d.expenses.filter((e) => !e.skipped).length ? `<div class="table-wrap"><table>
+            <thead><tr><th>Расход</th><th class="num">Сумма</th><th><span class="sr-only">Действия</span></th></tr></thead>
+            <tbody>${d.expenses.filter((e) => !e.skipped).map((e) => `<tr><td>${esc(cats[e.category])}${e.monthly ? ' <span class="badge info">каждый месяц</span>' : ""}
+                <span class="cell-sub">${fmtDate(e.date)}${e.note ? `, ${esc(e.note)}` : ""}</span></td>
+              <td class="num">${money(e.amount)}</td>
+              <td class="num"><button type="button" class="link" data-del="${esc(e.expense_id)}">Удалить</button></td></tr>`).join("")}</tbody></table></div>`
+            : `<div style="padding:0 22px 8px">${emptyState("doc", "Расходов за месяц нет", "Добавьте аренду, зарплату и другие платежи: без них прибыль в отчёте будет завышена.")}</div>`}
+        </section>
+      </div>
+      ${d.monthly.length ? `<section class="card" style="margin-top:16px"><h2>Ежемесячные платежи</h2>
+        <ul class="plain">${d.monthly.map((t) => `<li class="spread"><span>${esc(cats[t.category])}: ${money(t.amount)}${t.note ? `, ${esc(t.note)}` : ""}</span>
+          <button type="button" class="link" data-stop="${esc(t.expense_id)}">Остановить повтор</button></li>`).join("")}</ul></section>` : ""}`;
+    app.querySelector("#e-month").addEventListener("change", (e) => { if (e.target.value) { expenseMonth = e.target.value; reload(); } });
+    const form = app.querySelector("#exp-form");
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const errorEl = form.querySelector("#exp-error");
+      errorEl.hidden = true;
+      const amount = toNum(form.querySelector("#e-amount").value);
+      if (!amount || amount <= 0) { errorEl.textContent = "Укажите сумму больше нуля"; errorEl.hidden = false; form.querySelector("#e-amount").focus(); return; }
+      const done = busyButton(form.querySelector("button[type=submit]"), "Сохраняем…");
+      try {
+        await api("POST", "/expenses", { date: form.querySelector("#e-date").value, category: form.querySelector("#e-cat").value,
+          amount, note: form.querySelector("#e-note").value, monthly: form.querySelector("#e-monthly").checked });
+        toast("Расход добавлен");
+        reload();
+      } catch (err) { done(); if (!err.silent) { errorEl.textContent = err.message; errorEl.hidden = false; } }
+    });
+    app.querySelectorAll("[data-del]").forEach((b) => confirmButton(b, async () => {
+      try { await api("DELETE", `/expenses/${encodeURIComponent(b.dataset.del)}`); toast("Расход удалён"); reload(); } catch (err) { if (!err.silent) toast(err.message, true); }
+    }));
+    app.querySelectorAll("[data-stop]").forEach((b) => confirmButton(b, async () => {
+      try { await api("DELETE", `/expenses/t${b.dataset.stop}-${today().slice(0, 7)}?all=1`); toast("Повтор остановлен"); reload(); } catch (err) { if (!err.silent) toast(err.message, true); }
+    }));
+  }
+
+  async function renderStock(alive) {
+    const d = await api("GET", "/stock");
+    if (!alive()) return;
+    app.innerHTML = `
+      <a class="back" href="#/more">← Ещё</a>
+      <div class="page-head"><h1>Склад</h1>
+        <p class="sub">Остаток = пришло по накладным − продано на кассе (блюда списывают ингредиенты) ± инвентаризация.</p></div>
+      ${d.orders.length ? `<section class="card notice-card" aria-labelledby="ord-title">
+        <h2 id="ord-title">Пора заказать: ${d.low} ${plural(d.low, "товар", "товара", "товаров")}</h2>
+        ${d.orders.map((o, n) => `<div class="stock-order">
+          <div class="order-head"><div><div class="title">${esc(o.supplier)}</div><div class="small muted">${o.items.map((i) => esc(i.name)).join(", ")}</div></div>
+            <div class="order-total">${money(o.total)}</div></div>
+          <pre class="claim-text">${esc(o.text)}</pre>
+          <div class="actionbar"><button type="button" data-copy="${n}">Скопировать заказ</button>
+            <a class="button" href="mailto:?subject=${encodeURIComponent("Заказ товара")}&body=${encodeURIComponent(o.text)}">Открыть в почте</a>
+            <a class="button" href="#/suppliers">Поставщики в каталоге</a></div></div>`).join("")}
+      </section>` : ""}
+      ${d.stock.length ? `<div class="card flush"><div class="toolbar"><h2 style="margin:0">Остатки</h2>
+          <button type="button" class="export" id="export">Скачать в Excel</button></div>
+        <div class="table-wrap" tabindex="0" role="region" aria-label="Остатки"><table>
+          <thead><tr><th>Товар</th><th class="num">Остаток</th><th class="num hide-sm">Пришло</th><th class="num hide-sm">Продано</th></tr></thead>
+          <tbody>${d.stock.map((r) => `<tr data-key="${esc(r.product_key)}">
+            <td>${esc(r.name)} ${r.low ? '<span class="badge bad">мало</span>' : ""}
+              <details class="stock-edit"><summary>Настроить</summary>
+                <form novalidate>
+                  <div class="form-row">
+                    <div><label for="min-${esc(r.product_key)}">Минимум</label><input id="min-${esc(r.product_key)}" name="min_qty" type="number" inputmode="decimal" min="0" step="any" value="${esc(r.min_qty ?? "")}"></div>
+                    <div><label for="sp-${esc(r.product_key)}">Цена продажи, ₸</label><input id="sp-${esc(r.product_key)}" name="sale_price" type="number" inputmode="decimal" min="0" step="any" value="${esc(r.sale_price ?? "")}"></div>
+                    <div><label for="cnt-${esc(r.product_key)}">Фактически</label><input id="cnt-${esc(r.product_key)}" name="count" type="number" inputmode="decimal" min="0" step="any" placeholder="${esc(qtyText(r.on_hand))}"></div>
+                  </div>
+                  <p class="field-hint">«Фактически» — после пересчёта: остаток станет этим числом, разница спишется.</p>
+                  <div class="actionbar"><button class="primary" type="submit">Сохранить</button></div>
+                </form></details></td>
+            <td class="num"><b>${qtyText(r.on_hand)}</b> ${esc(r.unit || "")}${r.min_qty != null ? `<span class="cell-sub">мин. ${qtyText(r.min_qty)}</span>` : ""}</td>
+            <td class="num hide-sm">${qtyText(r.received)}</td><td class="num hide-sm">${qtyText(r.sold)}</td></tr>`).join("")}</tbody></table></div></div>`
+        : `<div class="card">${emptyState("box", "Склад пуст", "Остатки появятся после первых накладных.", '<a class="button primary" href="#/invoices">К накладным</a>')}</div>`}`;
+    app.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", () => copyText(d.orders[b.dataset.copy].text)));
+    app.querySelector("#export")?.addEventListener("click", () => downloadCsv(`sklad-${today()}.csv`,
+      ["Товар", "Ед.", "Пришло", "Продано", "Инвентаризация", "Остаток", "Минимум"],
+      d.stock.map((r) => [r.name, r.unit || "", r.received, r.sold, r.adjust, r.on_hand, r.min_qty ?? ""])));
+    app.querySelectorAll("tr[data-key] form").forEach((form) => form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const key = form.closest("tr").dataset.key;
+      const body = {};
+      ["min_qty", "sale_price"].forEach((f) => { body[f] = toNum(form.elements[f].value); });
+      if (form.elements.count.value !== "") body.count = toNum(form.elements.count.value);
+      const done = busyButton(form.querySelector("button[type=submit]"), "Сохраняем…");
+      try { await api("PUT", `/stock/${encodeURIComponent(key)}`, body); toast("Сохранено"); reload(); }
+      catch (err) { done(); if (!err.silent) toast(err.message, true); }
+    }));
+  }
+
+  // Periods the report picker offers: this and the last 11 months, quarters, half-years and years.
+  function periodOptions() {
+    const now = new Date();
+    const y = now.getFullYear(), m = now.getMonth() + 1;
+    const out = [];
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(y, m - 1 - i, 1);
+      const v = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      out.push([v, d.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })]);
+    }
+    const q = Math.ceil(m / 3);
+    for (let i = 0; i < 4; i++) { const qq = ((q - 1 - i) % 4 + 4) % 4 + 1; const yy = y - (q - 1 - i < 0 ? 1 : 0); out.push([`${yy}-Q${qq}`, `${qq} квартал ${yy}`]); }
+    const h = m > 6 ? 2 : 1;
+    out.push([`${y}-H${h}`, `${h === 1 ? "1-е" : "2-е"} полугодие ${y}`], [`${h === 2 ? y : y - 1}-H${h === 2 ? 1 : 2}`, `${h === 2 ? "1-е" : "2-е"} полугодие ${h === 2 ? y : y - 1}`]);
+    out.push([String(y), `${y} год`], [String(y - 1), `${y - 1} год`]);
+    return out;
+  }
+  const KIND_NAMES = { sale: "Продажа", refund: "Возврат", purchase: "Закупка", expense: "Расход" };
+  let reportPeriod = null;
+
+  async function renderReports(alive, owner) {
+    const period = reportPeriod || today().slice(0, 7);
+    const d = await api("GET", owner ? `/shared/${encodeURIComponent(owner)}/reports?period=${period}` : `/reports?period=${period}`);
+    if (!alive()) return;
+    const t = d.tax;
+    const label = (periodOptions().find(([v]) => v === period) || [period, period])[1];
+    const journal = d.journal.slice(-60).reverse();
+    app.innerHTML = `
+      <a class="back no-print" href="${owner ? "#/access" : "#/more"}">← ${owner ? "Доступ" : "Ещё"}</a>
+      <div class="page-head"><h1>${owner ? `Отчёты: ${esc(d.business.name || "")}` : "Отчёты и налоги"}</h1>
+        <p class="sub">${owner ? "Только просмотр: владелец открыл вам доступ как бухгалтеру." : "Продажи, закупки и расходы за период, черновик налога и пакет для бухгалтера."}</p></div>
+      <div class="print-only report-title"><b>${esc(d.business.name || "")}</b>${d.business.bin ? `, ИИН/БИН ${esc(d.business.bin)}` : ""}<br>Отчёт за ${esc(label)} (${fmtDate(d.from)}–${fmtDate(d.to)})</div>
+      <div class="toolbar plain-toolbar no-print">
+        <div><label for="period">Период</label>
+          <select id="period">${periodOptions().map(([v, l]) => `<option value="${v}"${v === period ? " selected" : ""}>${esc(l)}</option>`).join("")}</select></div>
+        <div class="actionbar">
+          <button type="button" class="export" id="exp-journal">Журнал в Excel</button>
+          <button type="button" class="export" id="exp-products">Прибыль по товарам в Excel</button>
+          <button type="button" class="primary" id="print">Пакет для бухгалтера (PDF)</button>
+        </div>
+      </div>
+      <div class="facts four">
+        ${stat("Выручка", money(d.income), `${d.receipts} ${plural(d.receipts, "чек", "чека", "чеков")}${d.refunds ? `, возвраты ${money(d.refunds)}` : ""}`)}
+        ${stat("Закупки", money(d.purchases), "по проверенным накладным")}
+        ${stat("Расходы", money(d.expenses), "аренда, зарплата и др.")}
+        ${stat("Прибыль", money(d.profit), "до налогов")}
+      </div>
+      <section class="card tax-card" aria-labelledby="tax-title">
+        <div class="order-head"><h2 id="tax-title" style="margin:0">Черновик налога</h2><span class="badge warn">проверьте с бухгалтером</span></div>
+        <dl class="tax-lines">
+          <div><dt>Режим</dt><dd>${esc(t.regime || "не указан")}</dd></div>
+          <div><dt>Доход за период</dt><dd>${money(t.base)}</dd></div>
+          <div><dt>Ставка</dt><dd>${t.rate_pct != null ? `${pctText(t.rate_pct)}%` : "не указана"}</dd></div>
+          <div class="total"><dt>Налог к уплате (черновик)</dt><dd>${t.amount != null ? money(t.amount) : "—"}</dd></div>
+        </dl>
+        ${t.checks.length ? `<h3>Что проверить перед сдачей</h3><ul class="checks">${t.checks.map((c) => `<li>${esc(c)}</li>`).join("")}</ul>` : '<p class="ok-text">Замечаний нет.</p>'}
+        <p class="small muted">${esc(t.note)}</p>
+        ${owner ? "" : '<div class="actionbar no-print"><a class="button" href="#/taxes">Ставка, ИИН/БИН и сроки</a></div>'}
+      </section>
+      <div class="grid-2" style="margin-top:16px">
+        <section class="card flush"><div class="toolbar"><h2 style="margin:0">Выручка по оплате</h2></div>
+          <table><tbody>${Object.entries(d.by_payment).map(([k, v]) => `<tr><td>${PAY_NAMES[k]}</td><td class="num">${money(v)}</td></tr>`).join("")}</tbody></table></section>
+        <section class="card flush"><div class="toolbar"><h2 style="margin:0">Расходы по категориям</h2></div>
+          ${Object.keys(d.by_category).length ? `<table><tbody>${Object.entries(d.by_category).map(([k, v]) => `<tr><td>${esc(d.categories[k])}</td><td class="num">${money(v)}</td></tr>`).join("")}</tbody></table>`
+            : '<p class="muted" style="padding:0 22px 16px">Расходов за период нет.</p>'}</section>
+      </div>
+      <section class="card flush" style="margin-top:16px"><div class="toolbar"><h2 style="margin:0">Прибыль по товарам и блюдам</h2></div>
+        ${d.by_product.length ? `<div class="table-wrap" tabindex="0" role="region" aria-label="Прибыль по товарам"><table>
+          <thead><tr><th>Позиция</th><th class="num">Выручка</th><th class="num hide-sm">Себестоимость</th><th class="num">Маржа</th></tr></thead>
+          <tbody>${d.by_product.map((p) => `<tr><td>${esc(p.name)}<span class="cell-sub">${qtyText(p.qty)} шт/порц</span></td><td class="num">${money(p.revenue)}</td>
+            <td class="num hide-sm">${money(p.cost)}</td><td class="num">${p.margin_pct != null ? `${pctText(p.margin_pct)}%` : "—"}</td></tr>`).join("")}</tbody></table></div>`
+          : '<p class="muted" style="padding:0 22px 16px">Продаж за период нет.</p>'}</section>
+      <section class="card flush" style="margin-top:16px"><div class="toolbar"><h2 style="margin:0">Журнал операций</h2>
+          <span class="small muted">${d.journal.length > 60 ? "последние 60, весь журнал в Excel" : `${d.journal.length} ${plural(d.journal.length, "запись", "записи", "записей")}`}</span></div>
+        ${journal.length ? `<div class="table-wrap" tabindex="0" role="region" aria-label="Журнал операций"><table>
+          <thead><tr><th>Дата</th><th>Документ</th><th class="num">Сумма</th></tr></thead>
+          <tbody>${journal.map((r) => `<tr><td>${fmtDate(r.date)}</td><td>${esc(r.doc)}<span class="cell-sub">${esc(KIND_NAMES[r.kind])}${r.party ? `, ${esc(r.party)}` : ""}</span></td>
+            <td class="num">${r.amount > 0 ? "+" : ""}${money(r.amount)}</td></tr>`).join("")}</tbody></table></div>`
+          : '<p class="muted" style="padding:0 22px 16px">Операций за период нет.</p>'}</section>`;
+    app.querySelector("#period").addEventListener("change", (e) => { reportPeriod = e.target.value; reload(); });
+    app.querySelector("#print").addEventListener("click", () => window.print());
+    app.querySelector("#exp-journal").addEventListener("click", () => downloadCsv(`zhurnal-${period}.csv`,
+      ["Дата", "Операция", "Документ", "Контрагент или комментарий", "Сумма, ₸"],
+      d.journal.map((r) => [r.date, KIND_NAMES[r.kind], r.doc, r.party, r.amount])));
+    app.querySelector("#exp-products").addEventListener("click", () => downloadCsv(`pribyl-${period}.csv`,
+      ["Позиция", "Количество", "Выручка, ₸", "Себестоимость, ₸", "Прибыль, ₸", "Маржа, %"],
+      d.by_product.map((p) => [p.name, p.qty, p.revenue, p.cost ?? "", p.profit ?? "", p.margin_pct ?? ""])));
+  }
+
+  const REPEAT_NAMES = { none: "Один раз", monthly: "Каждый месяц", quarterly: "Каждый квартал", semiannual: "Раз в полгода", yearly: "Каждый год" };
+
+  async function renderTaxes(alive) {
+    const d = await api("GET", "/taxes");
+    if (!alive()) return;
+    const daysText = (r) => r.done ? '<span class="badge info">прошёл</span>'
+      : r.days_left === 0 ? '<span class="badge bad">сегодня</span>'
+        : `<span class="badge ${r.days_left <= 7 ? "warn" : "ok"}">через ${r.days_left} ${plural(r.days_left, "день", "дня", "дней")}</span>`;
+    app.innerHTML = `
+      <a class="back" href="#/reports">← Отчёты</a>
+      <div class="page-head"><h1>Налоги</h1>
+        <p class="sub">Реквизиты для чека и отчёта, ставка для черновика налога и календарь сроков. Ставку и сроки сверьте с бухгалтером: они зависят от вашего режима.</p></div>
+      <div class="grid-2">
+        <form class="card" id="tax-form" novalidate>
+          <h2>Режим и реквизиты</h2>
+          <label for="t-regime">Режим налогообложения</label><input id="t-regime" maxlength="80" value="${esc(d.regime || "")}" placeholder="Например: упрощённая декларация">
+          <label for="t-rate">Ставка налога, %</label><input id="t-rate" type="number" inputmode="decimal" min="0" max="50" step="0.1" value="${esc(d.rate_pct ?? "")}">
+          <p class="field-hint">Черновик налога = доход за период × эта ставка.</p>
+          <label for="t-bin">ИИН/БИН</label><input id="t-bin" inputmode="numeric" maxlength="14" value="${esc(d.bin || "")}" autocomplete="off">
+          <label for="t-address">Адрес для чека</label><input id="t-address" maxlength="120" value="${esc(d.address || "")}" autocomplete="street-address">
+          <p class="field-error" id="tax-error" role="alert" hidden></p>
+          <div class="actionbar"><button class="primary" type="submit">Сохранить</button></div>
+        </form>
+        <section class="card" aria-labelledby="cal-title">
+          <h2 id="cal-title">Календарь сроков</h2>
+          ${d.deadlines.length ? `<ul class="plain deadlines">${d.deadlines.map((r) => `<li class="spread"><span><b>${esc(r.title)}</b>
+              <span class="small muted">${fmtDate(r.next_due)}, ${REPEAT_NAMES[r.repeat].toLowerCase()}</span></span>
+              <span>${daysText(r)} <button type="button" class="link" data-del="${esc(r.deadline_id)}">Удалить</button></span></li>`).join("")}</ul>`
+            : '<p class="muted">Сроков пока нет. Добавьте их ниже: напоминание появится за неделю на странице накладных.</p>'}
+          <form id="dl-form" novalidate>
+            <h3>Добавить срок</h3>
+            <div class="chips">${d.templates.map((t, n) => `<button type="button" class="chip" data-tpl="${n}">${esc(t.title)}</button>`).join("")}</div>
+            <label for="dl-title">Что сделать</label><input id="dl-title" maxlength="100">
+            <div class="form-row">
+              <div><label for="dl-due">Срок</label><input id="dl-due" type="date"></div>
+              <div><label for="dl-repeat">Повтор</label><select id="dl-repeat">${d.repeats.map((r) => `<option value="${r}">${REPEAT_NAMES[r]}</option>`).join("")}</select></div>
+            </div>
+            <p class="field-error" id="dl-error" role="alert" hidden></p>
+            <div class="actionbar"><button class="primary" type="submit">Добавить срок</button></div>
+          </form>
+        </section>
+      </div>`;
+    const form = app.querySelector("#tax-form");
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const errorEl = form.querySelector("#tax-error");
+      errorEl.hidden = true;
+      const done = busyButton(form.querySelector("button[type=submit]"), "Сохраняем…");
+      try {
+        await api("PUT", "/taxes", { regime: form.querySelector("#t-regime").value, rate_pct: toNum(form.querySelector("#t-rate").value),
+          bin: form.querySelector("#t-bin").value, address: form.querySelector("#t-address").value });
+        toast("Сохранено");
+        reload();
+      } catch (err) { done(); if (!err.silent) { errorEl.textContent = err.message; errorEl.hidden = false; } }
+    });
+    const dl = app.querySelector("#dl-form");
+    dl.querySelectorAll("[data-tpl]").forEach((b) => b.addEventListener("click", () => {
+      const t = d.templates[b.dataset.tpl];
+      dl.querySelector("#dl-title").value = t.title;
+      dl.querySelector("#dl-repeat").value = t.repeat;
+      dl.querySelector("#dl-due").focus();
+    }));
+    dl.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const errorEl = dl.querySelector("#dl-error");
+      errorEl.hidden = true;
+      const done = busyButton(dl.querySelector("button[type=submit]"), "Добавляем…");
+      try {
+        await api("POST", "/taxes/deadlines", { title: dl.querySelector("#dl-title").value, due: dl.querySelector("#dl-due").value,
+          repeat: dl.querySelector("#dl-repeat").value });
+        toast("Срок добавлен");
+        profile = null;
+        reload();
+      } catch (err) { done(); if (!err.silent) { errorEl.textContent = err.message; errorEl.hidden = false; } }
+    });
+    app.querySelectorAll("[data-del]").forEach((b) => confirmButton(b, async () => {
+      try { await api("DELETE", `/taxes/deadlines/${b.dataset.del}`); profile = null; reload(); } catch (err) { if (!err.silent) toast(err.message, true); }
+    }));
+  }
+
+  async function renderAccess(alive) {
+    const [mine, shared] = await Promise.all([
+      isSupplier() ? Promise.resolve(null) : api("GET", "/access"),
+      api("GET", "/shared"),
+    ]);
+    if (!alive()) return;
+    app.innerHTML = `
+      <a class="back" href="#/more">← Ещё</a>
+      <div class="page-head"><h1>Доступ бухгалтера</h1>
+        <p class="sub">Бухгалтер входит под своим email и видит ваши отчёты и журнал. Менять данные он не может.</p></div>
+      ${mine ? `<div class="grid-2">
+        <form class="card" id="acc-form" novalidate>
+          <h2>Открыть доступ</h2>
+          <label for="acc-email">Email бухгалтера</label><input id="acc-email" type="email" autocomplete="off" maxlength="120">
+          <p class="field-hint">Бухгалтер регистрируется в SupplyRadar с этим email и подтверждает его кодом из письма.</p>
+          <p class="field-error" id="acc-error" role="alert" hidden></p>
+          <div class="actionbar"><button class="primary" type="submit">Открыть доступ</button><span class="small muted">${mine.accountants.length} из ${mine.limit}</span></div>
+        </form>
+        <section class="card" aria-labelledby="acc-title"><h2 id="acc-title">У кого есть доступ</h2>
+          ${mine.accountants.length ? `<ul class="plain">${mine.accountants.map((a) => `<li class="spread"><span>${esc(a.email)}<span class="small muted"> с ${fmtDate(a.created_at)}</span></span>
+            <button type="button" class="link" data-revoke="${esc(a.email)}">Закрыть доступ</button></li>`).join("")}</ul>`
+            : '<p class="muted">Пока ни у кого.</p>'}</section>
+      </div>` : ""}
+      <section class="card" style="margin-top:16px" aria-labelledby="shared-title"><h2 id="shared-title">Вам открыли доступ</h2>
+        ${shared.owners.length ? `<ul class="plain">${shared.owners.map((o) => `<li class="spread"><span>${esc(o.name || "Бизнес")}</span>
+          <a class="button" href="#/shared/${encodeURIComponent(o.owner_id)}">Открыть отчёты</a></li>`).join("")}</ul>`
+          : '<p class="muted">Если вы бухгалтер, попросите владельца бизнеса открыть доступ на ваш email.</p>'}</section>`;
+    const form = app.querySelector("#acc-form");
+    form?.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const errorEl = form.querySelector("#acc-error");
+      errorEl.hidden = true;
+      const done = busyButton(form.querySelector("button[type=submit]"), "Открываем…");
+      try { await api("POST", "/access", { email: form.querySelector("#acc-email").value }); toast("Доступ открыт"); reload(); }
+      catch (err) { done(); if (!err.silent) { errorEl.textContent = err.message; errorEl.hidden = false; } }
+    });
+    app.querySelectorAll("[data-revoke]").forEach((b) => confirmButton(b, async () => {
+      try { await api("DELETE", `/access/${encodeURIComponent(b.dataset.revoke)}`); toast("Доступ закрыт"); reload(); } catch (err) { if (!err.silent) toast(err.message, true); }
+    }));
+  }
+
+  function renderShared(owner, alive) { return renderReports(alive, owner); }
+
   async function renderMore() {
     const p = profile || {};
     const tile = (href, icon, title, text, mark = "") => `
@@ -2254,7 +2754,17 @@
       </a></li>`;
     app.innerHTML = `
       <div class="page-head"><h1>Ещё</h1>
-        <p class="sub">Поставщики, заявки, переплаты, рецепты и помощник.</p></div>
+        <p class="sub">Касса, отчёты и налоги, склад, поставщики, переплаты и помощник.</p></div>
+      <h2 class="tiles-title">Учёт и отчётность</h2>
+      <ul class="tiles">
+        ${tile("#/pos", "bag", "Касса", "Продажа и чек с номером, PDF или печать")}
+        ${tile("#/reports", "chart", "Отчёты и налоги", "Выручка, прибыль, черновик налога, пакет для бухгалтера")}
+        ${tile("#/expenses", "doc", "Расходы", "Аренда, зарплата, коммунальные, повтор каждый месяц")}
+        ${tile("#/stock", "box", "Склад", "Остатки и готовый заказ, когда товара мало")}
+        ${tile("#/taxes", "calendar", "Налоги", "Ставка, ИИН/БИН и календарь сроков")}
+        ${tile("#/access", "shield", "Доступ бухгалтера", "Отчёты только для чтения")}
+      </ul>
+      <h2 class="tiles-title">Закупки и поставщики</h2>
       <ul class="tiles">
         ${tile("#/suppliers", "truck", "Поставщики", "Каталоги и заявки в один клик")}
         ${tile("#/orders", "doc", "Мои заявки", "Статусы заявок поставщикам")}

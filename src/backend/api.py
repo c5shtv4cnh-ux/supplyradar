@@ -12,7 +12,9 @@ Routes (all require a valid Cognito ID token):
     PUT  /settings                change threshold / email (subscribes email to SNS) / business profile
     GET  /admin/overview          service-wide numbers, admin accounts only
     ...and the routes in supplyradar/market.py (suppliers, catalog, orders, subscription,
-    assistant, savings, recipes) and supplyradar/growth.py (locations, contracts, claims, demo data).
+    assistant, savings, recipes), supplyradar/growth.py (locations, contracts, claims, demo data) and
+    supplyradar/ledger.py (sales and receipts, expenses, stock, reports with a tax draft, tax calendar,
+    read-only accountant access). Query string values reach handlers in `params`.
 """
 import json
 import logging
@@ -21,7 +23,7 @@ import urllib.parse
 import uuid
 from datetime import datetime, timezone
 
-from supplyradar import aws, config, db, growth, market
+from supplyradar import aws, config, db, growth, ledger, market
 from supplyradar.common import ApiError, now_iso, num as _num  # noqa: F401
 
 log = logging.getLogger()
@@ -44,13 +46,15 @@ def response(status, body):
 def handler(event, context):
     try:
         claims = event["requestContext"]["authorizer"]["jwt"]["claims"]
-        user = {"id": claims["sub"], "email": claims.get("email")}
+        user = {"id": claims["sub"], "email": claims.get("email"),
+                "email_verified": str(claims.get("email_verified")).lower() == "true"}
         user["is_admin"] = str(claims.get("email_verified")).lower() == "true" \
             and (user["email"] or "").lower() in config.ADMIN_EMAILS
         route = ROUTES.get(event.get("routeKey"))
         if route is None:
             raise ApiError(404, "Not found")
-        params = {k: urllib.parse.unquote(v) for k, v in (event.get("pathParameters") or {}).items()}
+        params = {k: str(v)[:100] for k, v in (event.get("queryStringParameters") or {}).items()}
+        params.update({k: urllib.parse.unquote(v) for k, v in (event.get("pathParameters") or {}).items()})
         body = parse_body(event)
         return response(200, route(user, params, body))
     except ApiError as err:
@@ -240,7 +244,8 @@ def get_settings(user, params, body):
     return {"threshold_pct": s["threshold_pct"], "email": s["email"], "account_email": user.get("email"),
             "email_pending": bool(s["email"]) and _pending(s["subscription_arn"]),
             "business_type": s["business_type"], "business_name": s["business_name"],
-            "contact": s["contact"], "plan": market.effective_plan(user), "is_admin": bool(user.get("is_admin"))}
+            "contact": s["contact"], "plan": market.effective_plan(user), "is_admin": bool(user.get("is_admin")),
+            "deadlines_soon": ledger.upcoming_deadlines(db.user_pk(user["id"]), 7)}
 
 
 def put_settings(user, params, body):
@@ -350,4 +355,5 @@ ROUTES = {
     "GET /admin/overview": admin_overview,
     **market.ROUTES,
     **growth.ROUTES,
+    **ledger.ROUTES,
 }

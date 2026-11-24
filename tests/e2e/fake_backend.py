@@ -239,6 +239,7 @@ class Handler(SimpleHTTPRequestHandler):
                 event = {
                     "routeKey": route,
                     "pathParameters": m.groupdict() or None,
+                    "queryStringParameters": dict(urllib.parse.parse_qsl(urllib.parse.urlparse(self.path).query)) or None,
                     "body": self.body().decode() or None,
                     "requestContext": {"authorizer": {"jwt": {"claims": claims}}},
                 }

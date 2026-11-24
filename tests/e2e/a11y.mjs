@@ -108,6 +108,15 @@ for (const [label, options] of [
   await visit("/claims", "h1", "claims");
   await visit("/contracts", "h1", "contract prices");
   await visit("/locations", "h1", "locations");
+  await visit("/pos", "#sale-form", "cash desk");
+  await page.click("a[href^='#/receipts/']");
+  await page.waitForSelector(".receipt");
+  await audit(page, `${label}: receipt`);
+  await visit("/expenses", "#exp-form", "expenses");
+  await visit("/stock", "h1", "stock");
+  await visit("/reports", ".tax-card", "reports and tax draft");
+  await visit("/taxes", "#tax-form", "taxes");
+  await visit("/access", "h1", "accountant access");
   await visit("/invoices/deadbeef-0000", ".error-state", "not found");
   // The welcome step, as a second account that has not chosen a template yet.
   {
